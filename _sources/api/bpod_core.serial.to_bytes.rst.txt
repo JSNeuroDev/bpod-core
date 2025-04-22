@@ -1,0 +1,6 @@
+bpod\_core.serial.to\_bytes
+===========================
+
+.. currentmodule:: bpod_core.serial
+
+.. autofunction:: to_bytes
