@@ -3,6 +3,7 @@
 import logging
 import re
 import struct
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import NamedTuple
@@ -926,7 +927,7 @@ class Bpod:
             'I',  # uint32
         )
 
-        # Append "additional ops"
+        # Append additional opcodes
         # TODO: why?
         if self.version.firmware > (22, 0):
             byte_array.append(0)
@@ -937,6 +938,36 @@ class Bpod:
         self.serial0.write_struct(
             f'<c2?H{n_bytes}s', b'C', run_asap, use_back_op, n_bytes, byte_array
         )
+
+    def run_state_machine(self):
+        """Temporary run method for debugging purposes"""
+        self.serial0.reset_input_buffer()
+        if not self.serial0.query(b'R'):
+            raise RuntimeError(
+                'The last state machine sent was not confirmed by the Bpod'
+            )
+        logger.debug('Running state machine ...')
+        t0 = self.serial0.read_struct('<Q')[0]
+        logger.debug(f'Starting trial at {t0 / 1e6} s')
+        running = True
+        while running:
+            if self.serial0.in_waiting < 2:
+                time.sleep(5e-6)
+            op1, op2 = self.serial0.read_struct('<2B')
+            match op1:
+                case 1:
+                    events = self.serial0.read_struct(f'<{op2}B')
+                    timestamp = self.serial0.read_struct('<I')[0]
+                    for event in events:
+                        event_name = 'exit' if event == 255 else self.event_names[event]
+                        timestamp_s = timestamp * self._hardware.cycle_frequency / 1e5
+                        logger.debug(f'{timestamp_s:0.1f} ms - {event_name}')
+                        if event == 255:
+                            running = False
+                case 2:
+                    logger.debug(f'soft-code {op2}')
+                case _:
+                    raise RuntimeError(f'Unknown opcode: {op1}')
 
 
 class Channel(ABC):
