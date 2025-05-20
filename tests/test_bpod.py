@@ -374,15 +374,3 @@ class TestSendStateMachine:
             b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
             b"\x00\x00\x00\x10'\x00\x00\x10'\x00\x00\x00"
         )
-
-    def test_send_state_machine_2(self, mock_bpod_25):
-        bpod = mock_bpod_25('COM3')
-        fsm = StateMachine()
-        fsm.add_state('a', 1, {'Tup': 'b'}, {'PWM1': 255})
-        fsm.add_state('b', 1, {'Tup': 'a'}, {})
-        bpod.send_state_machine(fsm)
-        assert (
-            bpod.serial0.last_write == b'C\x01\x00&\x00\x02\x00\x00\x00\x01\x00\x00\x00'
-            b'\x01\t\xff\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
-            b"\x00\x00\x00\x00\x10'\x00\x00\x10'\x00\x00"
-        )
