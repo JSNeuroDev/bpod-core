@@ -17,6 +17,17 @@ fixture_bpod_all = {
     b'C[\\x00\\x01]{2}.*': b'',
 }
 
+# Bpod 2.0 with firmware version 22
+fixture_bpod_20 = {
+    **fixture_bpod_all,
+    # b'F': b'\x16\x00\x03\x00',
+    b'F': b'\x17\x00\x03\x00',
+    b'H': b'\x00\x01d\x00i\x05\x10\x08\x10\rUUUUUXBBPPPP\x11UUUUUXBBPPPPVVVV',
+    b'M': b'\x00\x00\x00\x00\x00',
+    b'E[\\x00\\x01]{13}': b'\x01',
+}
+
+# Bpod 2.5 with firmware version 23
 fixture_bpod_25 = {
     **fixture_bpod_all,
     b'F': b'\x17\x00\x03\x00',
@@ -25,10 +36,13 @@ fixture_bpod_25 = {
     b'E[\\x00\\x01]{13}': b'\x01',
 }
 
+# Bpod 2+ with firmware version 23
 fixture_bpod_2p = {
     **fixture_bpod_all,
     b'F': b'\x17\x00\x04\x00',
-    b'H': b'\x00\x01d\x00K\x10\x08\x10\x10UUUXZFFFFBBPPPPP\x15UUUXZFFFFBBPPPPPVVVVV',
+    b'H': (
+        b'\x00\x01d\x00K\x05\x10\x08\x10\x10UUUXZFFFFBBPPPPP\x15UUUXZFFFFBBPPPPPVVVVV'
+    ),
     b'M': b'\x00\x00\x00',
     b'E[\\x00\\x01]{16}': b'\x01',
 }
@@ -99,6 +113,16 @@ def mock_bpod(mock_ext_serial):
         lambda *args, **kwargs: Bpod._sends_discovery_byte(mock_bpod, *args, **kwargs)
     )
     yield mock_bpod
+
+
+@pytest.fixture
+def mock_bpod_20(mock_comports, mock_ext_serial):
+    mock_ext_serial.mock_responses.update(fixture_bpod_20)
+    with (
+        patch('bpod_core.bpod.ExtendedSerial', return_value=mock_ext_serial),
+        patch('bpod_core.bpod.Bpod._detect_additional_serial_ports'),
+    ):
+        yield Bpod
 
 
 @pytest.fixture
@@ -339,15 +363,26 @@ class TestResetSessionClock:
 
 
 class TestSendStateMachine:
-    def test_send_state_machine_1(self, mock_bpod_25):
-        """Test sending of state machine, variant 1."""
+    def test_send_state_machine_1(self, mock_bpod_2p):
+        bpod = mock_bpod_2p('COM3')
+        fsm = StateMachine()
+        fsm.add_state('a', 1, {'Tup': 'b'}, {'PWM1': 255})
+        fsm.add_state('b', 1, {'Tup': 'a'}, {})
+        bpod.send_state_machine(fsm, run_asap=False)
+        assert list(bpod.serial0.last_write) == list(
+            b'C\x00\x00,\x00\x02\x00\x00\x00\x01\x00\x00\x00\x01\x00\x0b\x00\xff\x00'
+            b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+            b"\x00\x00\x00\x10\x00\x00\x10'\x00\x00\x00"
+        )
+
+    def test_send_state_machine_2(self, mock_bpod_25):
         bpod = mock_bpod_25('COM3')
         fsm = StateMachine()
-        fsm.add_state('a', 1, {'Tup': 'b'}, {'BNC1': 1})
-        fsm.add_state('b', 1, {'Tup': 'a'}, {'BNC2': 1})
+        fsm.add_state('a', 1, {'Tup': 'b'}, {'PWM1': 255})
+        fsm.add_state('b', 1, {'Tup': 'a'}, {})
         bpod.send_state_machine(fsm)
         assert (
-            bpod.serial0.last_write == b'C\x01\x00(\x00\x02\x00\x00\x00\x01\x00\x00\x00'
-            b'\x01\x07\x01\x01\x08\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
-            b"\x00\x00\x00\x00\x00\x00\x10'\x00\x00\x10'\x00\x00"
+            bpod.serial0.last_write == b'C\x01\x00&\x00\x02\x00\x00\x00\x01\x00\x00\x00'
+            b'\x01\t\xff\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+            b"\x00\x00\x00\x00\x10'\x00\x00\x10'\x00\x00"
         )
