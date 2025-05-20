@@ -860,8 +860,21 @@ class Bpod:
             )
 
         # Append global counter resets
-        # TODO: This is just a placeholder for now
-        byte_array.append(0)
+        if self.version.firmware < (23, 0):
+            byte_array.extend(
+                s.output_actions.get('GlobalCounterReset', 0)
+                for s in state_machine.states.values()
+            )
+        else:
+            byte_array.append(
+                sum(
+                    s.output_actions.get('GlobalCounterReset', 0) > 0
+                    for s in state_machine.states.values()
+                )
+            )
+            for state_idx, state in enumerate(state_machine.states.values()):
+                if (value := state.output_actions.get('GlobalCounterReset', 0)) > 0:
+                    byte_array.extend([state_idx, value])
 
         # Enable / disable analog thresholds
         # TODO: this is just a placeholder for now
@@ -940,7 +953,7 @@ class Bpod:
         )
 
     def run_state_machine(self):
-        """Temporary run method for debugging purposes"""
+        """Temporary run method for debugging purposes."""
         self.serial0.reset_input_buffer()
         if not self.serial0.query(b'R'):
             raise RuntimeError(

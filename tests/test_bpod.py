@@ -367,7 +367,7 @@ class TestSendStateMachine:
         bpod = mock_bpod_2p('COM3')
         fsm = StateMachine()
         fsm.add_state('a', 1, {'Tup': 'b'}, {'PWM1': 255})
-        fsm.add_state('b', 1, {'Tup': 'a'}, {})
+        fsm.add_state('b', 1, {'Tup': 'a'})
         bpod.send_state_machine(fsm, run_asap=False)
         assert bpod.serial0.last_write == (
             b'C\x00\x00,\x00\x02\x00\x00\x00\x01\x00\x00\x00\x01\x00\x0b\x00\xff\x00'
