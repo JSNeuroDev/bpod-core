@@ -686,11 +686,21 @@ class Bpod:
         }
         use_back_op = '>back' in targets_used
 
-        # Validate the maximum number of states (excluding '>exit' and '>back')
-        if n_states > (max_states := self._hardware.max_states - 1 - use_back_op):
-            raise ValueError(
-                f'State machine contains more states than the maximum of {max_states}'
-            )
+        # Validate the number of states, global timers, global counters and conditions.
+        n_global_timers = max(state_machine.global_timers.keys(), default=-1) + 1
+        n_global_counters = max(state_machine.global_counters.keys(), default=-1) + 1
+        n_conditions = max(state_machine.conditions.keys(), default=-1) + 1
+        for name, value, maximum_value in (
+            ('states', n_states, self._hardware.max_states - 1 - use_back_op),
+            ('global timers', n_global_timers, self._hardware.n_global_timers),
+            ('global counters', n_global_counters, self._hardware.n_global_counters),
+            ('conditions', n_conditions, self._hardware.n_conditions),
+        ):
+            if value > maximum_value:
+                raise ValueError(
+                    f'Too many {name} in state machine - hardware supports a maximum '
+                    f'number of {maximum_value} {name}'
+                )
 
         # Validate states
         valid_targets = list(state_machine.states.keys()) + VALID_OPERATORS
@@ -715,23 +725,6 @@ class Bpod:
                 raise ValueError(
                     f"Invalid output action '{invalid_action}' in state '{state_name}'"
                     + suggest_similar(invalid_action, self.output_actions)
-                )
-
-        # Number of global timers, global counters and conditions used by state machine.
-        # These correspond to the respective highest id + 1, i.e., all elements with
-        # smaller ids will be included irrespective of their use.
-        n_global_timers = max(state_machine.global_timers.keys(), default=-1) + 1
-        n_global_counters = max(state_machine.global_counters.keys(), default=-1) + 1
-        n_conditions = max(state_machine.conditions.keys(), default=-1) + 1
-        for name, value, key in (
-            ('global timers', n_global_timers, 'n_global_timers'),
-            ('global counters', n_global_counters, 'n_global_counters'),
-            ('conditions', n_conditions, 'n_conditions'),
-        ):
-            if value > (maximum_value := getattr(self._hardware, key)):
-                raise ValueError(
-                    f'Too many {name} in state machine. Hardware supports a maximum '
-                    f'of {maximum_value} {name}.'
                 )
 
         # Compile list of physical channels
