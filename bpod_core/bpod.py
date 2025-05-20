@@ -741,7 +741,7 @@ class Bpod:
             if timer.channel not in physical_output_channels + [None]:
                 raise ValueError(
                     f"Invalid channel '{timer.channel}' for global timer {timer_id}"
-                    + suggest_similar(timer.channel, physical_output_channels)
+                    + suggest_similar(timer.channel or '', physical_output_channels)
                 )
 
         # TODO: validate global timer onset triggers
