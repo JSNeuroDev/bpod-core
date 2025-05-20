@@ -793,14 +793,23 @@ class Bpod:
         append_events(self.event_names[0], 'GlobalTimer1_Start')
 
         # Append output actions and their values to bytearray
+        # TODO: this could be more efficient
         i1 = action_indices['GlobalTimerTrig']
+        tmp_list: list[int] = list()
         for state in state_machine.states.values():
-            counter_pos = len(byte_array)
-            byte_array.append(0)
+            counter_pos = len(tmp_list)
+            tmp_list.append(0)
             for action, value in state.output_actions.items():
                 if (key_idx := action_indices[action]) < i1:
-                    byte_array[counter_pos] += 1
-                    byte_array.extend((key_idx, value))
+                    tmp_list[counter_pos] += 1
+                    tmp_list.extend((key_idx, value))
+        format_string = 'H' if self.version.machine == 4 else 'B'
+        byte_array.extend(
+            struct.pack(
+                f'<{len(tmp_list)}{format_string}',
+                *tmp_list,
+            )
+        )
 
         # Append remaining events
         append_events('GlobalTimer1_Start', 'GlobalTimer1_End')  # global timer start
