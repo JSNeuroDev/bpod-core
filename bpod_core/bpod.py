@@ -793,7 +793,7 @@ class Bpod:
         append_events(self.event_names[0], 'GlobalTimer1_Start')
 
         # Append output actions and their values to bytearray
-        # TODO: this could be more efficient
+        # TODO: this could be more efficient?
         i1 = action_indices['GlobalTimerTrig']
         tmp_list: list[int] = list()
         for state in state_machine.states.values():
@@ -859,11 +859,13 @@ class Bpod:
             )
 
         # Append global counter resets
-        # TODO: one uint8 per state, default = 0?
-        byte_array.extend(
-            s.output_actions.get('GlobalCounterReset', 0)
-            for s in state_machine.states.values()
-        )
+        # TODO: This is just a placeholder for now
+        byte_array.append(0)
+
+        # Enable / disable analog thresholds
+        # TODO: this is just a placeholder for now
+        if self.version.machine == 4:
+            byte_array.extend([0, 0])
 
         # Helper function for packing a collection of integers into byte_array
         def pack_values(values: list[int], format_str: str) -> None:
@@ -923,6 +925,11 @@ class Bpod:
             ],
             'I',  # uint32
         )
+
+        # Append "additional ops"
+        # TODO: why?
+        if self.version.firmware > (22, 0):
+            byte_array.append(0)
 
         # Send to state machine
         logger.debug('Sending state machine definition to Bpod')
