@@ -15,6 +15,7 @@ from serial.tools.list_ports import comports
 from bpod_core import __version__ as bpod_core_version
 from bpod_core.com import ExtendedSerial
 from bpod_core.fsm import StateMachine
+from bpod_core.misc import suggest_similar
 
 PROJECT_NAME = 'bpod-core'
 VENDOR_IDS_BPOD = [0x16C0]  # vendor IDs of supported Bpod devices
@@ -675,7 +676,7 @@ class Bpod:
 
         # Ensure that the state machine has at least one state
         if (n_states := len(state_machine.states)) == 0:
-            raise ValueError('State machine has no states')
+            raise ValueError('State machine needs to have at least one state')
 
         # Check if '>back' operator is being used
         targets_used = {
@@ -686,9 +687,10 @@ class Bpod:
         use_back_op = '>back' in targets_used
 
         # Validate the maximum number of states (excluding '>exit' and '>back')
-        max_states = self._hardware.max_states - 1 - use_back_op
-        if n_states > max_states:
-            raise ValueError(f'State machine has more than {max_states} states')
+        if n_states > (max_states := self._hardware.max_states - 1 - use_back_op):
+            raise ValueError(
+                f'State machine contains more states than the maximum of {max_states}'
+            )
 
         # Validate states
         valid_targets = list(state_machine.states.keys()) + VALID_OPERATORS
@@ -699,17 +701,20 @@ class Bpod:
                     raise ValueError(
                         f"Invalid {target_type} '{target}' for state change condition "
                         f"'{condition_name}' in state '{state_name}'"
+                        + suggest_similar(target, valid_targets)
                     )
                 if condition_name not in self.event_names:
                     raise ValueError(
                         f"Invalid state change condition '{condition_name}' in state "
                         f"'{state_name}'"
+                        + suggest_similar(condition_name, self.event_names)
                     )
             actions = set(state.output_actions.keys())
             if invalid_actions := actions.difference(self.output_actions):
+                invalid_action = invalid_actions.pop()
                 raise ValueError(
-                    f"Invalid output action '{invalid_actions.pop()}' "
-                    f"in state '{state_name}'"
+                    f"Invalid output action '{invalid_action}' in state '{state_name}'"
+                    + suggest_similar(invalid_action, self.output_actions)
                 )
 
         # Number of global timers, global counters and conditions used by state machine.
@@ -743,6 +748,7 @@ class Bpod:
             if timer.channel not in physical_output_channels + [None]:
                 raise ValueError(
                     f"Invalid channel '{timer.channel}' for global timer {timer_id}"
+                    + suggest_similar(timer.channel, physical_output_channels)
                 )
 
         # TODO: validate global timer onset triggers
@@ -800,8 +806,8 @@ class Bpod:
         for state in state_machine.states.values():
             counter_pos = len(tmp_list)
             tmp_list.append(0)
-            for action, value in state.output_actions.items():
-                if (key_idx := action_indices[action]) < i1:
+            for invalid_action, value in state.output_actions.items():
+                if (key_idx := action_indices[invalid_action]) < i1:
                     tmp_list[counter_pos] += 1
                     tmp_list.extend((key_idx, value))
         format_string = 'H' if self.version.machine == 4 else 'B'
