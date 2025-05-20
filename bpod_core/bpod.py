@@ -866,14 +866,11 @@ class Bpod:
                 for s in state_machine.states.values()
             )
         else:
-            byte_array.append(
-                sum(
-                    s.output_actions.get('GlobalCounterReset', 0) > 0
-                    for s in state_machine.states.values()
-                )
-            )
+            counter_idx = len(byte_array)
+            byte_array.append(0)
             for state_idx, state in enumerate(state_machine.states.values()):
                 if (value := state.output_actions.get('GlobalCounterReset', 0)) > 0:
+                    byte_array[counter_idx] += 1
                     byte_array.extend([state_idx, value])
 
         # Enable / disable analog thresholds
