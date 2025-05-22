@@ -828,8 +828,8 @@ class Bpod:
             offset = idx0 + timer_id
             byte_array[offset : offset + 5 * n_global_timers : n_global_timers] = (
                 timer_channel_indices[global_timer.channel],
-                255 if global_timer.value_on == 0 else global_timer.value_on,  # TODO
-                255 if global_timer.value_off == 0 else global_timer.value_off,  # TODO
+                global_timer.value_on,  # TODO
+                global_timer.value_off,  # TODO
                 global_timer.loop,
                 global_timer.send_events,
             )
