@@ -378,11 +378,11 @@ class TestSendStateMachine:
     def test_send_state_machine_global_timers(self, mock_bpod_25):
         bpod = mock_bpod_25('COM3')
         fsm = StateMachine()
-        fsm.set_global_timer(0, 3, 2, 'BNC1')
+        fsm.set_global_timer(timer_id=0, duration=3, onset_delay=2, channel='BNC1')
         fsm.add_state('a', 0, {'Tup': 'b'}, {'GlobalTimerTrig': 0})
         fsm.add_state('b', 0, {'GlobalTimer1_End': '>exit'})
         bpod.send_state_machine(fsm, run_asap=False)
-        assert list(bpod.serial0.last_write) == list(
+        assert bpod.serial0.last_write == (
             b'C\x00\x009\x00\x02\x01\x00\x00\x01\x01\x00\x00\x00\x00\x00\x00\x00\x01'
             b'\x00\x02\x00\x00\x00\x00\x07\x00\x00\x00\x01\x00\x01\x00\x00\x00\x00\x00'
             b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x000u\x00\x00 N\x00\x00\x00'
