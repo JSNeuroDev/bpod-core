@@ -363,7 +363,7 @@ class TestResetSessionClock:
 
 
 class TestSendStateMachine:
-    def test_send_state_machine_1(self, mock_bpod_2p):
+    def test_send_state_machine_basic(self, mock_bpod_2p):
         bpod = mock_bpod_2p('COM3')
         fsm = StateMachine()
         fsm.add_state('a', 1, {'Tup': 'b'}, {'PWM1': 255})
@@ -373,4 +373,18 @@ class TestSendStateMachine:
             b'C\x00\x00,\x00\x02\x00\x00\x00\x01\x00\x00\x00\x01\x00\x0b\x00\xff\x00'
             b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
             b"\x00\x00\x00\x10'\x00\x00\x10'\x00\x00\x00"
+        )
+
+    def test_send_state_machine_global_timers(self, mock_bpod_25):
+        bpod = mock_bpod_25('COM3')
+        fsm = StateMachine()
+        fsm.set_global_timer(0, 3, 2, 'BNC1')
+        fsm.add_state('a', 0, {'Tup': 'b'}, {'GlobalTimerTrig': 0})
+        fsm.add_state('b', 0, {'GlobalTimer1_End': '>exit'})
+        bpod.send_state_machine(fsm, run_asap=False)
+        assert list(bpod.serial0.last_write) == list(
+            b'C\x00\x009\x00\x02\x01\x00\x00\x01\x01\x00\x00\x00\x00\x00\x00\x00\x01'
+            b'\x00\x02\x00\x00\x00\x00\x07\x00\x00\x00\x01\x00\x01\x00\x00\x00\x00\x00'
+            b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x000u\x00\x00 N\x00\x00\x00'
+            b'\x00\x00\x00\x00'
         )
