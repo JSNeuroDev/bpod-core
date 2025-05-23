@@ -871,7 +871,7 @@ class Bpod:
 
         # Append values for conditions to bytearray
         idx0 = len(byte_array)
-        byte_array.extend((0,) * n_global_counters * 2)
+        byte_array.extend((0,) * n_conditions * 2)
         for condition_id, condition in state_machine.conditions.items():
             offset = idx0 + condition_id
             byte_array[offset : offset + 2 * n_conditions : n_conditions] = (
