@@ -644,7 +644,7 @@ class Bpod:
     def send_state_machine(
         self,
         state_machine: StateMachine,
-        run_asap: bool = True,
+        run_asap: bool = False,
         validate_only: bool = False,
     ):
         """
@@ -660,7 +660,7 @@ class Bpod:
             The state machine to be sent to the Bpod device.
         run_asap : bool, optional
             If True, the state machine will run immediately after the current one has
-            finished. Default is True.
+            finished. Default is False.
         validate_only : bool, optional
             If True, the state machine is only validated and not sent to the device.
             Default is False.
@@ -821,18 +821,39 @@ class Bpod:
         timer_channel_indices = {k: v for v, k in enumerate(physical_output_channels)}
         timer_channel_indices[None] = 254
 
-        # Append values for global timers to bytearray
-        idx0 = len(byte_array)
-        byte_array.extend((254,) * n_global_timers + (0,) * n_global_timers * 4)
-        for timer_id, global_timer in state_machine.global_timers.items():
-            offset = idx0 + timer_id
-            byte_array[offset : offset + 5 * n_global_timers : n_global_timers] = (
-                timer_channel_indices[global_timer.channel],
-                global_timer.value_on,  # TODO
-                global_timer.value_off,  # TODO
-                global_timer.loop,
-                global_timer.send_events,
+        # Helper function for packing a collection of integers into byte_array
+        def pack_values(values: list[int], format_str: str) -> None:
+            byte_array.extend(struct.pack(f'<{len(values)}{format_str}', *values))
+
+        # Helper function to get values from a dictionary with int keys and values of
+        # GlobalTimer, GlobalCounter or Condition
+        def get_values(dictionary: dict, key: str, default: int, n: int) -> list[int]:
+            return [getattr(dictionary.get(idx), key, default) for idx in range(n)]
+
+        # Append values for global timer channels to byte_array
+        byte_array.extend(
+            timer_channel_indices[i]
+            for i in get_values(
+                state_machine.global_timers, 'channel', None, n_global_timers
             )
+        )
+
+        # Append values for global timers value_on and value_off to bytearray
+        # NB: Bpod 2+ uses 16-bit values for value_on and value_off!
+        format_str = 'H' if self.version.machine == 4 else 'B'
+        for key in ('value_on', 'value_off'):
+            pack_values(
+                get_values(state_machine.global_timers, key, 0, n_global_timers),
+                format_string,
+            )
+
+        # Append values for global timers loop and send_events to bytearray
+        byte_array.extend(
+            get_values(state_machine.global_timers, 'loop', 0, n_global_timers)
+        )
+        byte_array.extend(
+            get_values(state_machine.global_timers, 'send_events', 1, n_global_timers)
+        )
 
         # Append global counter events to bytearray
         idx0 = len(byte_array)
@@ -876,10 +897,6 @@ class Bpod:
         # TODO: this is just a placeholder for now
         if self.version.machine == 4:
             byte_array.extend([0, 0])
-
-        # Helper function for packing a collection of integers into byte_array
-        def pack_values(values: list[int], format_str: str) -> None:
-            byte_array.extend(struct.pack(f'<{len(values)}{format_str}', *values))
 
         # The format of the next values depends on the number of global timers
         if self._hardware.n_global_timers > 16:
