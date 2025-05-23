@@ -831,29 +831,25 @@ class Bpod:
             return [getattr(dictionary.get(idx), key, default) for idx in range(n)]
 
         # Append values for global timer channels to byte_array
-        byte_array.extend(
-            timer_channel_indices[i]
-            for i in get_values(
-                state_machine.global_timers, 'channel', None, n_global_timers
-            )
-        )
+        idx0 = len(byte_array)
+        byte_array.extend(b'\xfe' * n_global_timers)  # default: 254
+        for timer_id, global_timer in state_machine.global_timers.items():
+            byte_array[idx0 + timer_id] = timer_channel_indices[global_timer.channel]
 
         # Append values for global timers value_on and value_off to bytearray
         # NB: Bpod 2+ uses 16-bit values for value_on and value_off!
-        format_str = 'H' if self.version.machine == 4 else 'B'
+        format_string = 'H' if self.version.machine == 4 else 'B'
         for key in ('value_on', 'value_off'):
             pack_values(
                 get_values(state_machine.global_timers, key, 0, n_global_timers),
-                format_str,
+                format_string,
             )
 
         # Append values for global timers loop and send_events to bytearray
-        byte_array.extend(
-            get_values(state_machine.global_timers, 'loop', 0, n_global_timers)
-        )
-        byte_array.extend(
-            get_values(state_machine.global_timers, 'send_events', 1, n_global_timers)
-        )
+        for key, default in (('loop', 0), ('send_events', 1)):
+            byte_array.extend(
+                get_values(state_machine.global_timers, key, default, n_global_timers)
+            )
 
         # Append global counter events to bytearray
         idx0 = len(byte_array)
