@@ -825,11 +825,6 @@ class Bpod:
         def pack_values(values: list[int], format_str: str) -> None:
             byte_array.extend(struct.pack(f'<{len(values)}{format_str}', *values))
 
-        # Helper function to get values from a dictionary with int keys and values of
-        # GlobalTimer, GlobalCounter or Condition
-        def get_values(dictionary: dict, key: str, default: int, n: int) -> list[int]:
-            return [getattr(dictionary.get(idx), key, default) for idx in range(n)]
-
         # Append values for global timer channels to byte_array
         idx0 = len(byte_array)
         byte_array.extend(b'\xfe' * n_global_timers)  # default: 254
@@ -837,19 +832,23 @@ class Bpod:
             byte_array[idx0 + timer_id] = timer_channel_indices[global_timer.channel]
 
         # Append values for global timers value_on and value_off to bytearray
-        # NB: Bpod 2+ uses 16-bit values for value_on and value_off!
+        # Bpod 2+ uses 16-bit values for value_on and value_off
         format_string = 'H' if self.version.machine == 4 else 'B'
-        for key in ('value_on', 'value_off'):
+        for field_name in ('value_on', 'value_off'):
             pack_values(
-                get_values(state_machine.global_timers, key, 0, n_global_timers),
+                [
+                    getattr(state_machine.global_timers.get(idx), field_name, 0)
+                    for idx in range(n_global_timers)
+                ],
                 format_string,
             )
 
         # Append values for global timers loop and send_events to bytearray
-        for key, default in (('loop', 0), ('send_events', 1)):
-            byte_array.extend(
-                get_values(state_machine.global_timers, key, default, n_global_timers)
-            )
+        for field_name, default in (('loop', b'\x00'), ('send_events', b'\x01')):
+            idx0 = len(byte_array)
+            byte_array.extend(default * n_global_timers)  # default: 254
+            for timer_id, global_timer in state_machine.global_timers.items():
+                byte_array[idx0 + timer_id] = getattr(global_timer, field_name)
 
         # Append global counter events to bytearray
         idx0 = len(byte_array)
