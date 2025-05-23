@@ -363,17 +363,12 @@ class TestResetSessionClock:
 
 
 class TestSendStateMachine:
-    def test_send_state_machine_basic(self, mock_bpod_2p):
-        bpod = mock_bpod_2p('COM3')
+    @pytest.fixture
+    def fsm_basic(self):
         fsm = StateMachine()
         fsm.add_state('a', 1, {'Tup': 'b'}, {'PWM1': 255})
         fsm.add_state('b', 1, {'Tup': 'a'})
-        bpod.send_state_machine(fsm, run_asap=False)
-        assert bpod.serial0.last_write == (
-            b'C\x00\x00,\x00\x02\x00\x00\x00\x01\x00\x00\x00\x01\x00\x0b\x00\xff\x00'
-            b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
-            b"\x00\x00\x00\x10'\x00\x00\x10'\x00\x00\x00"
-        )
+        yield fsm
 
     @pytest.fixture
     def fsm_global_timers(self):
@@ -382,6 +377,39 @@ class TestSendStateMachine:
         fsm.add_state('a', 1, {'GlobalTimer3_Start': 'b'}, {'GlobalTimerTrig': 4})
         fsm.add_state('b', 1, {'GlobalTimer3_End': '>exit'})
         yield fsm
+
+    @pytest.fixture
+    def fsm_global_counters(self):
+        fsm = StateMachine()
+        fsm.set_global_counter(2, 'Port1_High', 5)
+        fsm.add_state('a', 2, {'Tup': 'b'}, {'PWM2': 255})
+        fsm.add_state('b', 0, {'Tup': 'c'}, {'GlobalCounterReset': 3})
+        fsm.add_state('c', 0, {'GlobalCounter3_End': '>exit'}, {'PWM1': 255})
+        yield fsm
+
+    @pytest.fixture
+    def fsm_conditions(self):
+        fsm = StateMachine()
+        fsm.set_condition(1, 'Port2', 1)
+        fsm.add_state('a', 1, {'Tup': 'b'}, {'PWM1': 255})
+        fsm.add_state('b', 1, {'Tup': '>exit', 'Condition2': '>exit'}, {'PWM2': 255})
+        yield fsm
+
+    def test_send_state_machine_basic_25(self, fsm_basic, mock_bpod_25):
+        bpod = mock_bpod_25('COM3')
+        bpod.send_state_machine(fsm_basic, run_asap=False)
+        assert bpod.serial0.last_write == (
+            b'C\x00\x00&\x00\x02\x00\x00\x00\x01\x00\x00\x00\x01\t\xff\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+            b"\x00\x00\x00\x00\x00\x00\x10'\x00\x00\x10'\x00\x00\x00"
+        )
+
+    def test_send_state_machine_basic_2p(self, fsm_basic, mock_bpod_2p):
+        bpod = mock_bpod_2p('COM3')
+        bpod.send_state_machine(fsm_basic, run_asap=False)
+        assert bpod.serial0.last_write == (
+            b'C\x00\x00,\x00\x02\x00\x00\x00\x01\x00\x00\x00\x01\x00\x0b\x00\xff\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+            b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x10'\x00\x00\x10'\x00\x00\x00"
+        )
 
     def test_send_state_machine_global_timers_25(self, fsm_global_timers, mock_bpod_25):
         bpod = mock_bpod_25('COM3')
@@ -404,15 +432,6 @@ class TestSendStateMachine:
             b'\x00\x00\x30\x75\x00\x00\x00'
         )
 
-    @pytest.fixture
-    def fsm_global_counters(self):
-        fsm = StateMachine()
-        fsm.set_global_counter(2, 'Port1_High', 5)
-        fsm.add_state('a', 2, {'Tup': 'b'}, {'PWM2': 255})
-        fsm.add_state('b', 0, {'Tup': 'c'}, {'GlobalCounterReset': 3})
-        fsm.add_state('c', 0, {'GlobalCounter3_End': '>exit'}, {'PWM1': 255})
-        yield fsm
-
     def test_send_state_machine_global_counters_25(
         self, fsm_global_counters, mock_bpod_25
     ):
@@ -434,4 +453,21 @@ class TestSendStateMachine:
             b'\xff\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x02\x03\x00\x00\x00\xfe\xfe\x57\x01\x01\x03\x00\x00\x00\x00'
             b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x20\x4e\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
             b'\x00\x00\x00\x00\x05\x00\x00\x00\x00'
+        )
+
+    def test_send_state_machine_conditions_25(self, fsm_conditions, mock_bpod_25):
+        bpod = mock_bpod_25('COM3')
+        bpod.send_state_machine(fsm_conditions)
+        assert bpod.serial0.last_write == (
+            b'C\x00\x00\x2e\x00\x02\x00\x00\x02\x01\x02\x00\x00\x01\x09\xff\x01\x0a\xff\x00\x00\x00\x00\x00\x00\x00\x01'
+            b'\x01\x02\x00\x0a\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x10\x27\x00\x00\x10\x27\x00\x00\x00'
+        )
+
+    def test_send_state_machine_conditions_2p(self, fsm_conditions, mock_bpod_2p):
+        bpod = mock_bpod_2p('COM3')
+        bpod.send_state_machine(fsm_conditions)
+        assert bpod.serial0.last_write == (
+            b'C\x00\x00\x36\x00\x02\x00\x00\x02\x01\x02\x00\x00\x01\x00\x0b\x00\xff\x00\x01\x00\x0c\x00\xff\x00\x00\x00'
+            b'\x00\x00\x00\x00\x00\x01\x01\x02\x00\x0c\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x10\x27\x00'
+            b'\x00\x10\x27\x00\x00\x00'
         )
