@@ -844,7 +844,7 @@ class Bpod:
         for key in ('value_on', 'value_off'):
             pack_values(
                 get_values(state_machine.global_timers, key, 0, n_global_timers),
-                format_string,
+                format_str,
             )
 
         # Append values for global timers loop and send_events to bytearray
