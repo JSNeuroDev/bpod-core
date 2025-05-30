@@ -4,6 +4,7 @@ import logging
 import re
 import struct
 import time
+import inspect
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import NamedTuple
@@ -119,6 +120,8 @@ class Bpod:
     """List of event names."""
     output_actions: list[str]
     """List of output actions."""
+    soft_code_handler: str
+    """Name of soft code handler function in user protocol workspace."""
 
     @validate_call
     def __init__(self, port: str | None = None, serial_number: str | None = None):
@@ -127,6 +130,7 @@ class Bpod:
         # initialize members
         self.event_names = []
         self.output_actions = []
+        self.soft_code_handler = None
 
         # identify Bpod by port or serial number
         port, self._serial_number = self._identify_bpod(port, serial_number)
@@ -964,6 +968,10 @@ class Bpod:
 
     def run_state_machine(self):
         """Temporary run method for debugging purposes."""
+        # Resolve soft code function
+        caller_globals = inspect.stack()[1].frame.f_globals
+        soft_code_func = caller_globals.get(self.soft_code_handler)
+
         self.serial0.reset_input_buffer()
         self.serial0.write(b'R')
         if self._state_matrix_sent:
@@ -973,6 +981,7 @@ class Bpod:
                     'The last state machine sent was not confirmed by the Bpod'
                 )
             self._state_matrix_sent = False
+        logger.debug('') # Visual separation in log before next trial start
         logger.debug('*** Trial Start ***')
         t0 = self.serial0.read_struct('<Q')[0]
         logger.debug(f'Trial start time: " {t0 / 1e6} s')
@@ -982,7 +991,7 @@ class Bpod:
                 time.sleep(5e-6)
             op1, op2 = self.serial0.read_struct('<2B')
             match op1:
-                case 1:
+                case 1: # Receive event(s)
                     event_data = self.serial0.read_struct(f'<{op2}B I')
                     events = event_data[:op2]
                     timestamp = event_data[op2]
@@ -997,10 +1006,14 @@ class Bpod:
                             end_timestamp_us = (struct.unpack('<Q', end_timestamps[-8:])[0]) / 1000000
                             logger.debug(f"Trial-End: {end_timestamp_us}s")
                             logger.debug(f"Trial Duration: {end_timestamp_cycles}s")
-                            logger.debug('')
                             running = False
-                case 2:
+                case 2: # Handle soft code by calling the designated soft code function in the user workspace
                     logger.debug(f'soft-code {op2}')
+                    if callable(soft_code_func):
+                        logger.debug(f"Calling soft-code handler: {self.soft_code_handler}")
+                        soft_code_func(op2)
+                    else:
+                        raise RuntimeError(f"Soft-Code Handler function '{self.soft_code_handler}' not found or is not callable.")
                 case _:
                     raise RuntimeError(f'Unknown opcode: {op1}')
 
