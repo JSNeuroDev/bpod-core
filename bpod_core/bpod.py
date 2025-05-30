@@ -102,6 +102,7 @@ class Bpod:
 
     _version: VersionInfo
     _hardware: HardwareConfiguration
+    _state_matrix_sent: False # TODO: Replace this with a subfield of _status
     serial0: ExtendedSerial
     """Primary serial device for communication with the Bpod."""
     serial1: ExtendedSerial | None = None
@@ -959,17 +960,22 @@ class Bpod:
         self.serial0.write_struct(
             f'<c2?H{n_bytes}s', b'C', run_asap, use_back_op, n_bytes, byte_array
         )
+        self._state_matrix_sent = True
 
     def run_state_machine(self):
         """Temporary run method for debugging purposes."""
         self.serial0.reset_input_buffer()
-        if not self.serial0.query(b'R'):
-            raise RuntimeError(
-                'The last state machine sent was not confirmed by the Bpod'
-            )
-        logger.debug('Running state machine ...')
+        self.serial0.write(b'R')
+        if self._state_matrix_sent:
+            confirmed = self.serial0.read(1)
+            if confirmed[0] != 1:
+                raise RuntimeError(
+                    'The last state machine sent was not confirmed by the Bpod'
+                )
+            self._state_matrix_sent = False
+        logger.debug('*** Trial Start ***')
         t0 = self.serial0.read_struct('<Q')[0]
-        logger.debug(f'Starting trial at {t0 / 1e6} s')
+        logger.debug(f'Trial start time: " {t0 / 1e6} s')
         running = True
         while running:
             if self.serial0.in_waiting < 2:
@@ -977,13 +983,21 @@ class Bpod:
             op1, op2 = self.serial0.read_struct('<2B')
             match op1:
                 case 1:
-                    events = self.serial0.read_struct(f'<{op2}B')
-                    timestamp = self.serial0.read_struct('<I')[0]
+                    event_data = self.serial0.read_struct(f'<{op2}B I')
+                    events = event_data[:op2]
+                    timestamp = event_data[op2]
                     for event in events:
                         event_name = 'exit' if event == 255 else self.event_names[event]
-                        timestamp_s = timestamp * self._hardware.cycle_frequency / 1e5
-                        logger.debug(f'{timestamp_s:0.1f} ms - {event_name}')
+                        timestamp_s = timestamp * self._hardware.cycle_frequency / 1e8
+                        logger.debug(f'Event: {event_name} - {timestamp_s:0.1f}s')
                         if event == 255:
+                            end_timestamps = self.serial0.read(12)
+                            end_timestamp_cycles = (struct.unpack('<I', end_timestamps[:4])[
+                                0]) / self._hardware.cycle_frequency
+                            end_timestamp_us = (struct.unpack('<Q', end_timestamps[-8:])[0]) / 1000000
+                            logger.debug(f"Trial-End: {end_timestamp_us}s")
+                            logger.debug(f"Trial Duration: {end_timestamp_cycles}s")
+                            logger.debug('')
                             running = False
                 case 2:
                     logger.debug(f'soft-code {op2}')
