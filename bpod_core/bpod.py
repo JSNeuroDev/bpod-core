@@ -427,48 +427,51 @@ class Bpod:
             module.set_relay(False)
 
     def _compile_event_names(self):
+        """Compile the list of event names supported by the Bpod hardware."""
         n_serial_events = sum([len(m.event_names) for m in self.modules])
         n_softcodes = self._hardware.max_serial_events - n_serial_events
         n_usb = self._hardware.input_description.count(b'X')
         n_usb_ext = self._hardware.input_description.count(b'Z')
-        n_softcodes_per_usb_channel = n_softcodes // (n_usb + n_usb_ext)
-        n_app_softcodes = n_usb_ext * n_softcodes_per_usb_channel
+        n_softcodes_per_usb = n_softcodes // (n_usb + n_usb_ext)
+        n_app_softcodes = n_usb_ext * n_softcodes_per_usb
+        self.event_names = []
 
+        # Compile event names for input channels
         name_generators = {
             b'U': lambda idx: self.modules[idx].event_names,
-            b'X': lambda _: (
-                f'SoftCode{i + 1}' for i in range(n_softcodes_per_usb_channel)
-            ),
+            b'X': lambda _: (f'SoftCode{i + 1}' for i in range(n_softcodes_per_usb)),
             b'Z': lambda _: (f'APP_SoftCode{i + 1}' for i in range(n_app_softcodes)),
             b'F': lambda idx: (f'Flex{idx + 1}_{i + 1}' for i in range(2)),
             b'P': lambda idx: (f'Port{idx + 1}_{state}' for state in ('High', 'Low')),
             b'B': lambda idx: (f'BNC{idx + 1}_{state}' for state in ('High', 'Low')),
             b'W': lambda idx: (f'Wire{idx + 1}_{state}' for state in ('High', 'Low')),
         }
-
-        self.event_names = []
-        type_indices = {k: 0 for k in name_generators}
+        indices = {k: 0 for k in name_generators}
         for input in self.inputs:
             if input.io_type not in name_generators:
                 continue
-            names = name_generators[input.io_type](type_indices[input.io_type])
+            names = name_generators[input.io_type](indices[input.io_type])
             self.event_names.extend(names)
-            type_indices[input.io_type] += 1
+            indices[input.io_type] += 1
+
+        # Add events for global timers, global counters, conditions and 'Tup'
+        n_global_timers = self._hardware.n_global_timers
+        n_global_counters = self._hardware.n_global_counters
         self.event_names.extend(
-            f'GlobalTimer{i + 1}_Start' for i in range(self._hardware.n_global_timers)
+            [
+                *(f'GlobalTimer{i + 1}_Start' for i in range(n_global_timers)),
+                *(f'GlobalTimer{i + 1}_End' for i in range(n_global_timers)),
+                *(f'GlobalCounter{i + 1}_End' for i in range(n_global_counters)),
+                *(f'Condition{i + 1}' for i in range(self._hardware.n_conditions)),
+                'Tup',
+            ]
         )
-        self.event_names.extend(
-            f'GlobalTimer{i + 1}_End' for i in range(self._hardware.n_global_timers)
-        )
-        self.event_names.extend(
-            f'GlobalCounter{i + 1}_End' for i in range(self._hardware.n_global_counters)
-        )
-        self.event_names.extend(
-            f'Condition{i + 1}' for i in range(self._hardware.n_conditions)
-        )
-        self.event_names.append('Tup')
 
     def _compile_output_actions(self):
+        """Compile the list of output actions supported by the Bpod hardware."""
+        self.output_actions = []
+
+        # Compile actions for output channels
         name_generators = {
             b'U': lambda idx: self.modules[idx].name,
             b'X': lambda _: 'SoftCode',
@@ -479,15 +482,15 @@ class Bpod:
             b'B': lambda idx: f'BNC{idx + 1}',
             b'W': lambda idx: f'Wire{idx + 1}',
         }
-
-        self.output_actions = []
-        type_indices = {k: 0 for k in name_generators}
+        indices = {k: 0 for k in name_generators}
         for output in self.outputs:
             if output.io_type not in name_generators:
                 continue
-            names = name_generators[output.io_type](type_indices[output.io_type])
+            names = name_generators[output.io_type](indices[output.io_type])
             self.output_actions.append(names)
-            type_indices[output.io_type] += 1
+            indices[output.io_type] += 1
+
+        # Add output actions for global timers, global counters and analog thresholds
         self.output_actions.extend(
             ['GlobalTimerTrig', 'GlobalTimerCancel', 'GlobalCounterReset']
         )
