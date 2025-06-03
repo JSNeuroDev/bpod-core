@@ -447,7 +447,7 @@ class Bpod:
             elif io_key == b'Z':  # SoftCodeApp
                 names = (f'{name}{i + 1}' for i in range(n_app_softcodes))
             elif io_key == b'F':  # Flex
-                names = (f'{name}{counters[io_key] + 1}{i + 1}' for i in range(2))
+                names = (f'{name}{counters[io_key] + 1}_{i + 1}' for i in range(2))
             elif io_key in b'PBW':  # Port, BNC, Wire
                 names = (f'{name}{counters[io_key] + 1}_{s}' for s in ('High', 'Low'))
             else:
