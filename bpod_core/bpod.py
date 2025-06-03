@@ -434,7 +434,6 @@ class Bpod:
         n_softcodes_per_usb_channel = n_softcodes // (n_usb + n_usb_ext)
         n_app_softcodes = n_usb_ext * n_softcodes_per_usb_channel
 
-        # Define name generators for each IO type
         name_generators = {
             b'U': lambda idx: self.modules[idx].event_names,
             b'X': lambda _: (
@@ -447,30 +446,29 @@ class Bpod:
             b'W': lambda idx: (f'Wire{idx + 1}_{state}' for state in ('High', 'Low')),
         }
 
-        # Generate input event names
-        event_names = []
+        self.event_names = []
         type_indices = {k: 0 for k in name_generators}
         for input in self.inputs:
             if input.io_type not in name_generators:
                 continue
             names = name_generators[input.io_type](type_indices[input.io_type])
-            event_names.extend(names)
+            self.event_names.extend(names)
             type_indices[input.io_type] += 1
-        event_names.extend(
+        self.event_names.extend(
             f'GlobalTimer{i + 1}_Start' for i in range(self._hardware.n_global_timers)
         )
-        event_names.extend(
+        self.event_names.extend(
             f'GlobalTimer{i + 1}_End' for i in range(self._hardware.n_global_timers)
         )
-        event_names.extend(
+        self.event_names.extend(
             f'GlobalCounter{i + 1}_End' for i in range(self._hardware.n_global_counters)
         )
-        event_names.extend(
+        self.event_names.extend(
             f'Condition{i + 1}' for i in range(self._hardware.n_conditions)
         )
-        event_names.append('Tup')
+        self.event_names.append('Tup')
 
-        # Define name generators for each IO type
+    def _compile_output_actions(self):
         name_generators = {
             b'U': lambda idx: self.modules[idx].name,
             b'X': lambda _: 'SoftCode',
@@ -482,23 +480,19 @@ class Bpod:
             b'W': lambda idx: f'Wire{idx + 1}',
         }
 
-        # Generate input event names
-        output_actions = []
+        self.output_actions = []
         type_indices = {k: 0 for k in name_generators}
         for output in self.outputs:
             if output.io_type not in name_generators:
                 continue
             names = name_generators[output.io_type](type_indices[output.io_type])
-            output_actions.append(names)
+            self.output_actions.append(names)
             type_indices[output.io_type] += 1
-        output_actions.extend(
+        self.output_actions.extend(
             ['GlobalTimerTrig', 'GlobalTimerCancel', 'GlobalCounterReset']
         )
         if self.version.machine == 4:
-            output_actions.extend(['AnalogThreshEnable', 'AnalogThreshDisable'])
-
-        self.event_names = event_names
-        self.output_actions = output_actions
+            self.output_actions.extend(['AnalogThreshEnable', 'AnalogThreshDisable'])
 
     @property
     def port(self) -> str | None:
@@ -603,8 +597,9 @@ class Bpod:
             modules
         )
 
-        # update event names
+        # update event names and output actions
         self._compile_event_names()
+        self._compile_output_actions()
 
     def validate_state_machine(self, state_machine: StateMachine) -> None:
         """
