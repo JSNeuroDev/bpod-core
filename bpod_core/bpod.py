@@ -455,14 +455,13 @@ class Bpod:
             indices[input.io_type] += 1
 
         # Add events for global timers, global counters, conditions and 'Tup'
-        n_global_timers = self._hardware.n_global_timers
-        n_global_counters = self._hardware.n_global_counters
+        fmt_seq = lambda s, n: (s.format(i + 1) for i in range(n))  # noqa: E731
         self.event_names.extend(
             [
-                *(f'GlobalTimer{i + 1}_Start' for i in range(n_global_timers)),
-                *(f'GlobalTimer{i + 1}_End' for i in range(n_global_timers)),
-                *(f'GlobalCounter{i + 1}_End' for i in range(n_global_counters)),
-                *(f'Condition{i + 1}' for i in range(self._hardware.n_conditions)),
+                *fmt_seq('GlobalTimer{}_Start', self._hardware.n_global_timers),
+                *fmt_seq('GlobalTimer{}_End', self._hardware.n_global_timers),
+                *fmt_seq('GlobalCounter{}_End', self._hardware.n_global_counters),
+                *fmt_seq('Condition{}', self._hardware.n_conditions),
                 'Tup',
             ]
         )
