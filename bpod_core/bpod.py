@@ -26,7 +26,7 @@ CHANNEL_TYPES_INPUT = {
     b'U': 'Serial',
     b'X': 'SoftCode',
     b'Z': 'SoftCodeApp',
-    b'F': 'FlexIO',
+    b'F': 'Flex',
     b'D': 'Digital',
     b'B': 'BNC',
     b'W': 'Wire',
@@ -436,58 +436,52 @@ class Bpod:
         n_app_softcodes = n_usb_ext * n_softcodes_per_usb
         self.event_names = []
 
-        # Compile event names for input channels
-        name_generators = {
-            b'U': lambda idx: self.modules[idx].event_names,
-            b'X': lambda _: (f'SoftCode{i + 1}' for i in range(n_softcodes_per_usb)),
-            b'Z': lambda _: (f'APP_SoftCode{i + 1}' for i in range(n_app_softcodes)),
-            b'F': lambda idx: (f'Flex{idx + 1}_{i + 1}' for i in range(2)),
-            b'P': lambda idx: (f'Port{idx + 1}_{state}' for state in ('High', 'Low')),
-            b'B': lambda idx: (f'BNC{idx + 1}_{state}' for state in ('High', 'Low')),
-            b'W': lambda idx: (f'Wire{idx + 1}_{state}' for state in ('High', 'Low')),
-        }
-        indices = {k: 0 for k in name_generators}
-        for input in self.inputs:
-            if input.io_type not in name_generators:
+        # Compile actions for output channels
+        counters = {k: 0 for k in CHANNEL_TYPES_INPUT}
+        for io_key in [bytes([x]) for x in self._hardware.input_description]:
+            name = CHANNEL_TYPES_INPUT[io_key]
+            if io_key == b'U':  # Serial
+                names = self.modules[counters[io_key]].event_names
+            elif io_key == b'X':  # SoftCode
+                names = (f'{name}{i + 1}' for i in range(n_softcodes_per_usb))
+            elif io_key == b'Z':  # SoftCodeApp
+                names = (f'{name}{i + 1}' for i in range(n_app_softcodes))
+            elif io_key == b'F':  # Flex
+                names = (f'{name}{counters[io_key] + 1}{i + 1}' for i in range(2))
+            elif io_key in b'PBW':  # Port, BNC, Wire
+                names = (f'{name}{counters[io_key] + 1}_{s}' for s in ('High', 'Low'))
+            else:
                 continue
-            names = name_generators[input.io_type](indices[input.io_type])
             self.event_names.extend(names)
-            indices[input.io_type] += 1
+            counters[io_key] += 1
 
-        # Add events for global timers, global counters, conditions and 'Tup'
-        fmt_seq = lambda s, n: (s.format(i + 1) for i in range(n))  # noqa: E731
-        self.event_names.extend(
-            [
-                *fmt_seq('GlobalTimer{}_Start', self._hardware.n_global_timers),
-                *fmt_seq('GlobalTimer{}_End', self._hardware.n_global_timers),
-                *fmt_seq('GlobalCounter{}_End', self._hardware.n_global_counters),
-                *fmt_seq('Condition{}', self._hardware.n_conditions),
-                'Tup',
-            ]
-        )
+        # Add global timers, global counters, conditions and 'Tup'
+        for event_name, n in [
+            ('GlobalTimer{}_Start', self._hardware.n_global_timers),
+            ('GlobalTimer{}_End', self._hardware.n_global_timers),
+            ('GlobalCounter{}_End', self._hardware.n_global_counters),
+            ('Condition{}', self._hardware.n_conditions),
+        ]:
+            self.event_names.extend(event_name.format(i + 1) for i in range(n))
+        self.event_names.append('Tup')
 
     def _compile_output_actions(self):
         """Compile the list of output actions supported by the Bpod hardware."""
         self.output_actions = []
 
         # Compile actions for output channels
-        name_generators = {
-            b'U': lambda idx: self.modules[idx].name,
-            b'X': lambda _: 'SoftCode',
-            b'Z': lambda _: 'APP_SoftCode',
-            b'F': lambda idx: f'Flex{idx + 1}',
-            b'V': lambda idx: f'Valve{idx + 1}',
-            b'P': lambda idx: f'PWM{idx + 1}',
-            b'B': lambda idx: f'BNC{idx + 1}',
-            b'W': lambda idx: f'Wire{idx + 1}',
-        }
-        indices = {k: 0 for k in name_generators}
-        for output in self.outputs:
-            if output.io_type not in name_generators:
+        counters = {k: 0 for k in CHANNEL_TYPES_OUTPUT}
+        for io_key in [bytes([x]) for x in self._hardware.output_description]:
+            if io_key == b'U':  # Serial
+                name = self.modules[counters[io_key]].name
+            elif io_key in b'XZ':  # SoftCode, SoftCodeApp
+                name = CHANNEL_TYPES_OUTPUT[io_key]
+            elif io_key in b'FVPBW':  # Flex, Valve, PWM, BNC, Wire
+                name = f'{CHANNEL_TYPES_OUTPUT[io_key]}{counters[io_key] + 1}'
+            else:
                 continue
-            names = name_generators[output.io_type](indices[output.io_type])
-            self.output_actions.append(names)
-            indices[output.io_type] += 1
+            self.output_actions.append(name)
+            counters[io_key] += 1
 
         # Add output actions for global timers, global counters and analog thresholds
         self.output_actions.extend(
