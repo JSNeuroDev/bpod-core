@@ -434,37 +434,28 @@ class Bpod:
         n_softcodes_per_usb_channel = n_softcodes // (n_usb + n_usb_ext)
         n_app_softcodes = n_usb_ext * n_softcodes_per_usb_channel
 
-        event_names = []
-        module_idx = 0
-        flexio_idx = 0
-        port_idx = 0
-        bnc_idx = 0
-        wire_idx = 0
-        for input in self.inputs:
-            match input.io_type:
-                case b'U':  # Serial / modules
-                    n = self.modules[module_idx].event_names
-                    module_idx += 1
-                case b'X':  # SoftCode
-                    n = (f'SoftCode{i + 1}' for i in range(n_softcodes_per_usb_channel))
-                case b'Z':
-                    n = (f'APP_SoftCode{i + 1}' for i in range(n_app_softcodes))
-                case b'F':
-                    n = (f'Flex{flexio_idx}_{i + 1}' for i in range(2))
-                    flexio_idx += 1
-                case b'P':
-                    n = (f'Port{port_idx}_{state}' for state in ('High', 'Low'))
-                    port_idx += 1
-                case b'B':
-                    n = (f'BNC{bnc_idx}_{state}' for state in ('High', 'Low'))
-                    bnc_idx += 1
-                case b'W':
-                    n = (f'Wire{bnc_idx}_{state}' for state in ('High', 'Low'))
-                    wire_idx += 1
-                case _:
-                    n = []
-            event_names.extend(n)
+        # Define name generators for each IO type
+        name_generators = {
+            b'U': lambda idx: self.modules[idx].event_names,
+            b'X': lambda _: (
+                f'SoftCode{i + 1}' for i in range(n_softcodes_per_usb_channel)
+            ),
+            b'Z': lambda _: (f'APP_SoftCode{i + 1}' for i in range(n_app_softcodes)),
+            b'F': lambda idx: (f'Flex{idx + 1}_{i + 1}' for i in range(2)),
+            b'P': lambda idx: (f'Port{idx + 1}_{state}' for state in ('High', 'Low')),
+            b'B': lambda idx: (f'BNC{idx + 1}_{state}' for state in ('High', 'Low')),
+            b'W': lambda idx: (f'Wire{idx + 1}_{state}' for state in ('High', 'Low')),
+        }
 
+        # Generate input event names
+        event_names = []
+        type_indices = {k: 0 for k in name_generators}
+        for input in self.inputs:
+            if input.io_type not in name_generators:
+                continue
+            names = name_generators[input.io_type](type_indices[input.io_type])
+            event_names.extend(names)
+            type_indices[input.io_type] += 1
         event_names.extend(
             f'GlobalTimer{i + 1}_Start' for i in range(self._hardware.n_global_timers)
         )
@@ -479,40 +470,27 @@ class Bpod:
         )
         event_names.append('Tup')
 
+        # Define name generators for each IO type
+        name_generators = {
+            b'U': lambda idx: self.modules[idx].name,
+            b'X': lambda _: 'SoftCode',
+            b'Z': lambda _: 'APP_SoftCode',
+            b'F': lambda idx: f'Flex{idx + 1}',
+            b'V': lambda idx: f'Valve{idx + 1}',
+            b'P': lambda idx: f'PWM{idx + 1}',
+            b'B': lambda idx: f'BNC{idx + 1}',
+            b'W': lambda idx: f'Wire{idx + 1}',
+        }
+
+        # Generate input event names
         output_actions = []
-        module_idx = 0
-        flexio_idx = 0
-        valve_idx = 0
-        pwm_idx = 0
-        bnc_idx = 0
-        wire_idx = 0
+        type_indices = {k: 0 for k in name_generators}
         for output in self.outputs:
-            match output.io_type:
-                case b'U':
-                    n = self.modules[module_idx].name
-                    module_idx += 1
-                case b'X':
-                    n = 'SoftCode'
-                case b'Z':
-                    n = 'APP_SoftCode'
-                case b'F':
-                    n = f'Flex{flexio_idx + 1}'
-                    flexio_idx += 1
-                case b'V':
-                    n = f'Valve{valve_idx + 1}'
-                    valve_idx += 1
-                case b'P':
-                    n = f'PWM{pwm_idx + 1}'
-                    pwm_idx += 1
-                case b'B':
-                    n = f'BNC{bnc_idx + 1}'
-                    bnc_idx += 1
-                case b'W':
-                    n = f'Wire{bnc_idx + 1}'
-                    wire_idx += 1
-                case _:
-                    n = ()
-            output_actions.append(n)
+            if output.io_type not in name_generators:
+                continue
+            names = name_generators[output.io_type](type_indices[output.io_type])
+            output_actions.append(names)
+            type_indices[output.io_type] += 1
         output_actions.extend(
             ['GlobalTimerTrig', 'GlobalTimerCancel', 'GlobalCounterReset']
         )
