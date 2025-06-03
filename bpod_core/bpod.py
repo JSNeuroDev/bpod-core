@@ -76,16 +76,10 @@ class HardwareConfiguration(NamedTuple):
     """Number of channels in the state machine's output channel description array."""
     output_description: bytes
     """Array indicating the state machine's onboard output channel types."""
-
-    @property
-    def cycle_frequency(self) -> int:
-        """Frequency of the state machine's refresh cycle during a trial in Hertz."""
-        return 1000000 // self.cycle_period
-
-    @property
-    def n_modules(self) -> int:
-        """Number of modules supported by the state machine."""
-        return self.input_description.count(b'U')
+    cycle_frequency: int
+    """Frequency of the state machine's refresh cycle during a trial in Hertz."""
+    n_modules: int
+    """Number of modules supported by the state machine."""
 
 
 class BpodError(Exception):
@@ -300,6 +294,8 @@ class Bpod:
     def _get_hardware_configuration(self) -> None:
         """Retrieve the Bpod's onboard hardware configuration."""
         logger.debug('Retrieving onboard hardware configuration')
+
+        # retrieve hardware configuration from Bpod
         if self.version.firmware > (22, 0):
             hardware_conf = list(self.serial0.query_struct(b'H', '<2H6B'))
         else:
@@ -307,6 +303,13 @@ class Bpod:
             hardware_conf.insert(-4, 3)  # max bytes per serial msg always = 3
         hardware_conf.extend(self.serial0.read_struct(f'<{hardware_conf[-1]}s1B'))
         hardware_conf.extend(self.serial0.read_struct(f'<{hardware_conf[-1]}s'))
+
+        # compute additional fields
+        cycle_frequency = 1000000 // hardware_conf[1]  # cycle_period is at index 1
+        n_modules = hardware_conf[-3].count(b'U')  # input_description is third to last
+        hardware_conf.extend([cycle_frequency, n_modules])
+
+        # create NamedTuple for hardware configuration
         self._hardware = HardwareConfiguration(*hardware_conf)
 
     def _configure_io(self) -> None:

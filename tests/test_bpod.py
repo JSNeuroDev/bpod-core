@@ -283,7 +283,6 @@ class TestGetHardwareConfiguration:
         Bpod._get_hardware_configuration(mock_bpod)
         assert mock_bpod._hardware.max_states == 256
         assert mock_bpod._hardware.cycle_period == 100
-        assert mock_bpod._hardware.cycle_frequency == 1e6 // 100
         assert mock_bpod._hardware.max_serial_events == 75
         assert mock_bpod._hardware.max_bytes_per_serial_message == 5
         assert mock_bpod._hardware.n_global_timers == 16
@@ -293,6 +292,8 @@ class TestGetHardwareConfiguration:
         assert mock_bpod._hardware.input_description == b'UUUXZFFFFBBPPPPP'
         assert mock_bpod._hardware.n_outputs == 21
         assert mock_bpod._hardware.output_description == b'UUUXZFFFFBBPPPPPVVVVV'
+        assert mock_bpod._hardware.cycle_frequency == 10000
+        assert mock_bpod._hardware.n_modules == 3
         assert mock_bpod.serial0.in_waiting == 0
 
     def test_get_version_info_v22(self, mock_bpod):
@@ -316,7 +317,6 @@ class TestGetHardwareConfiguration:
         Bpod._get_hardware_configuration(mock_bpod)
         assert mock_bpod._hardware.max_states == 256
         assert mock_bpod._hardware.cycle_period == 100
-        assert mock_bpod._hardware.cycle_frequency == 10000
         assert mock_bpod._hardware.max_serial_events == 75
         assert mock_bpod._hardware.max_bytes_per_serial_message == 3
         assert mock_bpod._hardware.n_global_timers == 16
@@ -326,6 +326,8 @@ class TestGetHardwareConfiguration:
         assert mock_bpod._hardware.input_description == b'UUUXZFFFFBBPPPPP'
         assert mock_bpod._hardware.n_outputs == 21
         assert mock_bpod._hardware.output_description == b'UUUXZFFFFBBPPPPPVVVVV'
+        assert mock_bpod._hardware.cycle_frequency == 10000
+        assert mock_bpod._hardware.n_modules == 3
         assert mock_bpod.serial0.in_waiting == 0
 
 
