@@ -163,11 +163,16 @@ class ChunkedSerialReader(Protocol):
     This class provides methods to buffer incoming data and retrieve it in chunks.
     """
 
-    def __init__(self):
+    def __init__(self, chunk_size: int = 2) -> None:
         """Initialize the protocol with an empty buffer."""
+        self._chunk_size = chunk_size
         self._buf = bytearray()
 
-    def put(self, data):
+    def __call__(self):
+        """Allow the instance to be used as a protocol factory for ReaderThread."""
+        return self
+
+    def put(self, data: bytes) -> None:
         """
         Add data to the buffer.
 
@@ -178,7 +183,7 @@ class ChunkedSerialReader(Protocol):
         """
         self._buf.extend(data)
 
-    def get(self, size) -> bytearray:
+    def get(self, size: int) -> bytearray:
         """
         Retrieve a specified amount of data from the buffer.
 
@@ -207,17 +212,28 @@ class ChunkedSerialReader(Protocol):
         """
         return len(self._buf)
 
-    def data_received(self, data):
+    def data_received(self, data: bytes) -> None:
         """
         Called with snippets received from the serial port.
 
         Parameters
         ----------
-        - data: The binary data received from the serial port.
+        data : bytes
+            The binary data received from the serial port.
         """
         self.put(data)
-        while len(self) >= 4:
-            print(struct.unpack('<I', self.get(4)))
+        while len(self) >= self._chunk_size:
+            self.process(self.get(self._chunk_size))
+
+    def process(self, data_chunk: bytearray) -> None:
+        """
+        Process a chunk of data.
+
+        Parameters
+        ----------
+        data_chunk : bytearray
+        """
+        pass
 
 
 def to_bytes(data: Any) -> bytes:  # noqa: PLR0911

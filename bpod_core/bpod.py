@@ -3,17 +3,17 @@
 import logging
 import re
 import struct
-import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
 from pydantic import validate_call
 from serial import SerialException
+from serial.threaded import ReaderThread
 from serial.tools.list_ports import comports
 
 from bpod_core import __version__ as bpod_core_version
-from bpod_core.com import ExtendedSerial
+from bpod_core.com import ChunkedSerialReader, ExtendedSerial
 from bpod_core.fsm import StateMachine
 from bpod_core.misc import suggest_similar
 
@@ -96,6 +96,7 @@ class Bpod:
 
     _version: VersionInfo
     _hardware: HardwareConfiguration
+    _reader_thread: ReaderThread | None = None
     serial0: ExtendedSerial
     """Primary serial device for communication with the Bpod."""
     serial1: ExtendedSerial | None = None
@@ -932,7 +933,12 @@ class Bpod:
             f'<c2?H{n_bytes}s', b'C', run_asap, use_back_op, n_bytes, byte_array
         )
 
-    def run_state_machine(self):
+    @property
+    def is_running(self) -> bool:
+        """Check if the Bpod is currently running a state machine."""
+        return getattr(self._reader_thread, 'alive', False)
+
+    def run_state_machine(self, blocking: bool = True):
         """Temporary run method for debugging purposes."""
         self.serial0.reset_input_buffer()
         if not self.serial0.query(b'R'):
@@ -940,27 +946,14 @@ class Bpod:
                 'The last state machine sent was not confirmed by the Bpod'
             )
         logger.debug('Running state machine ...')
-        t0 = self.serial0.read_struct('<Q')[0]
-        logger.debug(f'Starting trial at {t0 / 1e6} s')
-        running = True
-        while running:
-            if self.serial0.in_waiting < 2:
-                time.sleep(5e-6)
-            op1, op2 = self.serial0.read_struct('<2B')
-            match op1:
-                case 1:
-                    events = self.serial0.read_struct(f'<{op2}B')
-                    timestamp = self.serial0.read_struct('<I')[0]
-                    for event in events:
-                        event_name = 'exit' if event == 255 else self.event_names[event]
-                        timestamp_s = timestamp * self._hardware.cycle_frequency / 1e5
-                        logger.debug(f'{timestamp_s:0.1f} ms - {event_name}')
-                        if event == 255:
-                            running = False
-                case 2:
-                    logger.debug(f'soft-code {op2}')
-                case _:
-                    raise RuntimeError(f'Unknown opcode: {op1}')
+        protocol = TrialReader(chunk_size=2)
+        # TODO: add handlers to protocol
+        self._reader_thread = ReaderThread(self.serial0, protocol)
+        self._reader_thread.start()
+
+        # Wait for the reader thread to finish
+        if blocking:
+            self._reader_thread.join()
 
 
 class Channel(ABC):
@@ -1182,3 +1175,58 @@ class Module:
     def relay(self, state: bool) -> None:
         """The current state of the serial relay."""
         self.set_relay(state)
+
+
+class EndOfTrial(Exception):  # noqa: N818
+    """Indicates that the state machine has finished running."""
+
+    pass
+
+
+class TrialReader(ChunkedSerialReader):
+    def connection_made(self, transport):
+        t0 = struct.unpack('<Q', transport.serial.read(8))[0]
+        logger.debug(f'Starting trial at {t0} microseconds')
+
+    def connection_lost(self, exc: BaseException | None) -> None:
+        if exc is None:
+            return
+        if isinstance(exc, EndOfTrial):
+            logger.debug('State machine finished')
+        else:
+            raise exc
+
+    def process(self, data_chunk: bytearray):
+        op1, op2 = struct.unpack('<2B', data_chunk)
+        if op1 == 1:  # read events
+            format_str = f'<{op2}BI'
+            n_bytes = struct.calcsize(format_str)
+            *events, n_cycles = struct.unpack(format_str, self.get(n_bytes))
+            for event in events:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f'{n_cycles} cycles: event {event}')
+                self.handle_event(n_cycles, event)
+
+            # handle exit event
+            if 255 in events:
+                cycles, micros = struct.unpack('<IQ', self.get(12))
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f'Ending trial at {micros} microseconds / {cycles} cycles'
+                    )
+                raise EndOfTrial
+
+        elif op1 == 2:  # handle softcode
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f'soft-code {op1}')
+            self.handle_softcode(op2)
+        else:
+            raise RuntimeError(f'Unknown opcode: {op1}')
+
+    @staticmethod
+    def handle_event(n_cycles: int, event: int):
+        pass
+
+    @staticmethod
+    def handle_softcode(softcode: int):
+        pass
