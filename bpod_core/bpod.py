@@ -121,6 +121,7 @@ class Bpod:
         # initialize members
         self.event_names = []
         self.output_actions = []
+        self._waiting_for_confirmation = False
 
         # identify Bpod by port or serial number
         port, self._serial_number = self._identify_bpod(port, serial_number)
@@ -932,6 +933,7 @@ class Bpod:
         self.serial0.write_struct(
             f'<c2?H{n_bytes}s', b'C', run_asap, use_back_op, n_bytes, byte_array
         )
+        self._waiting_for_confirmation = True
 
     @property
     def is_running(self) -> bool:
@@ -940,11 +942,17 @@ class Bpod:
 
     def run_state_machine(self, blocking: bool = True):
         """Temporary run method for debugging purposes."""
-        self.serial0.reset_input_buffer()
-        if not self.serial0.query(b'R'):
+        if self.is_running:
+            raise RuntimeError('A state machine is already running')
+        self.serial0.write(b'R')
+
+        # Handle confirmation of the last state machine sent
+        if self._waiting_for_confirmation and not self.serial0.verify(b''):
             raise RuntimeError(
                 'The last state machine sent was not confirmed by the Bpod'
             )
+        self._waiting_for_confirmation = False
+
         logger.debug('Running state machine ...')
         protocol = TrialReader(chunk_size=2)
         # TODO: add handlers to protocol
@@ -953,6 +961,14 @@ class Bpod:
 
         # Wait for the reader thread to finish
         if blocking:
+            self._reader_thread.join()
+
+    def stop_state_machine(self):
+        """Stop the currently running state machine."""
+        if not self.is_running:
+            raise RuntimeError('No state machine is currently running')
+        self.serial0.write(b'X')
+        if self._reader_thread is not None:
             self._reader_thread.join()
 
 
