@@ -93,6 +93,8 @@ class BpodError(Exception):
 
 
 class FSMThread(Thread):
+    """A thread for managing the execution of a finite state machine on the Bpod."""
+
     _struct_ts_event = struct.Struct('<I')
     _struct_ts_exit = struct.Struct('<IQ')
 
@@ -104,6 +106,22 @@ class FSMThread(Thread):
         cycle_period: int,
         softcode_handler: Callable,
     ):
+        """
+        Initialize the FSMThread.
+
+        Parameters
+        ----------
+        serial : ExtendedSerial
+            The serial connection to the Bpod device.
+        fsm_index : int
+            The index of the FSM being managed.
+        confirm_fsm : bool
+            Whether to confirm the FSM with the Bpod device.
+        cycle_period : int
+            The cycle period of the Bpod device in microseconds.
+        softcode_handler : Callable
+            A handler function for processing softcodes.
+        """
         super().__init__()
         self.daemon = True
         self.serial = serial
@@ -113,11 +131,26 @@ class FSMThread(Thread):
         self._cycle_period = cycle_period
         self._softcode_handler = softcode_handler
 
-    def kill(self):
+    def terminate(self, timeout: float | None = 2) -> bool:
+        """
+        Terminate the FSMThread.
+
+        Parameters
+        ----------
+        timeout : float
+            Timeout in seconds.
+
+        Returns
+        -------
+        bool
+            Whether the FSMThread was successfully terminated.
+        """
         self.alive = False
-        self.join(2)
+        self.join(timeout)
+        return self.is_alive()
 
     def run(self):
+        """Execute the FSMThread."""
         # assign members to local variables to avoid repeated attribute lookups
         serial = self.serial
         index = self._index
@@ -182,6 +215,8 @@ class FSMThread(Thread):
 
             else:
                 raise RuntimeError(f'Unknown opcode: {opcode}')
+
+        self.alive = False
 
 
 class Bpod:
