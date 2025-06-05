@@ -4,16 +4,17 @@ import logging
 import re
 import struct
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import NamedTuple, cast
+from threading import Thread
+from typing import NamedTuple
 
 from pydantic import validate_call
 from serial import SerialException
-from serial.threaded import ReaderThread
 from serial.tools.list_ports import comports
 
 from bpod_core import __version__ as bpod_core_version
-from bpod_core.com import ChunkedSerialReader, ExtendedSerial
+from bpod_core.com import ExtendedSerial
 from bpod_core.fsm import StateMachine
 from bpod_core.misc import suggest_similar
 
@@ -91,12 +92,104 @@ class BpodError(Exception):
     """
 
 
+class FSMThread(Thread):
+    _struct_ts_event = struct.Struct('<I')
+    _struct_ts_exit = struct.Struct('<IQ')
+
+    def __init__(
+        self,
+        serial: ExtendedSerial,
+        fsm_index: int,
+        confirm_fsm: bool,
+        cycle_period: int,
+        softcode_handler: Callable,
+    ):
+        super().__init__()
+        self.daemon = True
+        self.serial = serial
+        self.alive = True
+        self._index = fsm_index
+        self._confirm_fsm = confirm_fsm
+        self._cycle_period = cycle_period
+        self._softcode_handler = softcode_handler
+
+    def kill(self):
+        self.alive = False
+        self.join(2)
+
+    def run(self):
+        # assign members to local variables to avoid repeated attribute lookups
+        serial = self.serial
+        index = self._index
+        cycle_period = self._cycle_period
+        struct_ts_event = self._struct_ts_event
+        softcode_handler = self._softcode_handler
+
+        # create buffers for repeated serial reads
+        opcode_buf = bytearray(2)  # buffer for opcodes
+        event_data_buf = bytearray(259)  # max 255 events + 4 bytes for n_cycles
+
+        # should we use debug logging?
+        debug = logger.isEnabledFor(logging.DEBUG)
+
+        # confirm the state machine
+        if self._confirm_fsm:
+            if serial.read(1) != b'\x01':
+                raise RuntimeError(f'State machine #{index} was not confirmed by Bpod')
+            elif debug:
+                logger.debug(f'State machine #{index} confirmed by Bpod')
+
+        # read the start time of the state machine
+        t0 = struct.unpack('<Q', serial.read(8))[0]
+        if debug:
+            logger.debug(f'{t0} µs: Starting state machine #{index}')
+
+        # enter the reading loop
+        while self.alive:
+            # read the next two opcodes
+            serial.readinto(opcode_buf)
+            opcode, param = opcode_buf
+
+            if opcode == 1:  # handle events
+                # read `param` event bytes + 4 bytes for n_cycles (uInt32)
+                event_data_view = memoryview(event_data_buf)[: param + 4]
+                serial.readinto(event_data_view)
+
+                # unpack the number of cycles, calculate the event's timestamp
+                n_cycles = struct_ts_event.unpack_from(event_data_view, param)[0]
+                micros = t0 + n_cycles * cycle_period
+
+                # handle each event
+                events = event_data_view[:param]
+                for event in events:
+                    if debug:
+                        logger.debug(f'{micros} µs: event {event}')
+
+                # handle exit event
+                if 255 in events:
+                    cycles, micros = self._struct_ts_exit.unpack(serial.read(12))
+                    if debug:
+                        logger.debug(
+                            f'{micros} µs: Ending state machine #{index} '
+                            f'({cycles} cycles)'
+                        )
+                    break
+
+            elif opcode == 2:  # handle softcodes
+                if debug:
+                    logger.debug(f'Softcode {param}')
+                softcode_handler(param)
+
+            else:
+                raise RuntimeError(f'Unknown opcode: {opcode}')
+
+
 class Bpod:
     """Bpod class for interfacing with the Bpod Finite State Machine."""
 
     _version: VersionInfo
     _hardware: HardwareConfiguration
-    _reader_thread: ReaderThread | None = None
+    _fsm_thread: FSMThread | None = None
     _next_fsm_index: int = -1
     _serial_buffer = bytearray()  # buffer for TrialReader thread
     serial0: ExtendedSerial
@@ -944,7 +1037,17 @@ class Bpod:
     @property
     def is_running(self) -> bool:
         """Check if the Bpod is currently running a state machine."""
-        return getattr(self._reader_thread, 'alive', False)
+        return getattr(self._fsm_thread, 'alive', False)
+
+    def wait(self):
+        """
+        Wait for the currently running state machine to finish.
+
+        This method blocks until the state machine has finished executing.
+        If no state machine is currently running, it raises a RuntimeError.
+        """
+        if isinstance(self._fsm_thread, Thread):
+            self._fsm_thread.join()
 
     def run_state_machine(self, blocking: bool = True):
         """Temporary run method for debugging purposes."""
@@ -955,31 +1058,34 @@ class Bpod:
 
     def _run_state_machine(self, blocking: bool):
         # Wait for an already running state machine to finish
-        if (
-            isinstance(self._reader_thread, ReaderThread)
-            and self._reader_thread.is_alive()
-        ):
-            self._reader_thread.join()
+        self.wait()
 
-        protocol = TrialReader(
-            self._next_fsm_index, self._serial_buffer, self._waiting_for_confirmation
+        # Start a new FSM thread
+        self._fsm_thread = FSMThread(
+            self.serial0,
+            self._next_fsm_index,
+            self._waiting_for_confirmation,
+            self._hardware.cycle_period,
+            self._softcode_handler,
         )
+        self._fsm_thread.start()
         self._waiting_for_confirmation = False
-        # TODO: add handlers to protocol
-        self._reader_thread = ReaderThread(self.serial0, protocol)
-        self._reader_thread.start()
 
-        # Wait for the reader thread to finish
+        # Wait for the FSM thread to finish
         if blocking:
-            self._reader_thread.join()
+            self._fsm_thread.join()
 
     def stop_state_machine(self):
         """Stop the currently running state machine."""
         if not self.is_running:
             raise RuntimeError('No state machine is currently running')
         self.serial0.write(b'X')
-        if self._reader_thread is not None:
-            self._reader_thread.join()
+        if self._fsm_thread is not None:
+            self._fsm_thread.join()
+
+    @staticmethod
+    def _softcode_handler(softcode: int):
+        pass
 
 
 class Channel(ABC):
@@ -1201,77 +1307,3 @@ class Module:
     def relay(self, state: bool) -> None:
         """The current state of the serial relay."""
         self.set_relay(state)
-
-
-class EndOfTrial(Exception):  # noqa: N818
-    """Indicates that the state machine has finished running."""
-
-    pass
-
-
-class TrialReader(ChunkedSerialReader):
-    def __init__(self, index: int, buffer: bytearray, confirm: bool) -> None:
-        super().__init__(chunk_size=2, buffer=buffer)
-        self.index = index
-        self.confirm_fsm = confirm
-
-    def connection_made(self, transport):
-        if self.confirm_fsm:
-            if not self.get_or_read(1, transport) == b'\x01':
-                raise RuntimeError(
-                    f'State machine #{self.index} was not confirmed by Bpod'
-                )
-            elif logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f'State machine #{self.index} confirmed by Bpod')
-        t0 = struct.unpack('<Q', self.get_or_read(8, transport))[0]
-        logger.debug(f'Starting state machine #{self.index} at {t0} microseconds')
-
-    def get_or_read(self, n_bytes: int, transport) -> bytes:
-        if len(self._buf) >= n_bytes:
-            return self.get(n_bytes)
-        else:
-            return cast(bytes, transport.serial.read(n_bytes))
-
-    def connection_lost(self, exc: BaseException | None) -> None:
-        if exc is None:
-            return
-        if isinstance(exc, EndOfTrial):
-            pass
-        else:
-            raise exc
-
-    def process(self, data_chunk: bytearray):
-        op1, op2 = struct.unpack('<2B', data_chunk)
-        if op1 == 1:  # read events
-            format_str = f'<{op2}BI'
-            n_bytes = struct.calcsize(format_str)
-            *events, n_cycles = struct.unpack(format_str, self.get(n_bytes))
-            for event in events:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(f'{n_cycles} cycles: event {event}')
-                self.handle_event(n_cycles, event)
-
-            # handle exit event
-            if 255 in events:
-                cycles, micros = struct.unpack('<IQ', self.get(12))
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        f'Ending state machine #{self.index} at '
-                        f'{micros} microseconds / {cycles} cycles'
-                    )
-                raise EndOfTrial
-
-        elif op1 == 2:  # handle softcode
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f'soft-code {op1}')
-            self.handle_softcode(op2)
-        else:
-            raise RuntimeError(f'Unknown opcode: {op1}')
-
-    @staticmethod
-    def handle_event(n_cycles: int, event: int):
-        pass
-
-    @staticmethod
-    def handle_softcode(softcode: int):
-        pass
