@@ -95,8 +95,9 @@ class BpodError(Exception):
 class FSMThread(Thread):
     """A thread for managing the execution of a finite state machine on the Bpod."""
 
-    _struct_ts_event = struct.Struct('<I')
-    _struct_ts_exit = struct.Struct('<IQ')
+    _struct_start = struct.Struct('<Q')
+    _struct_cycles = struct.Struct('<I')
+    _struct_exit = struct.Struct('<IQ')
 
     def __init__(
         self,
@@ -155,7 +156,7 @@ class FSMThread(Thread):
         serial = self.serial
         index = self._index
         cycle_period = self._cycle_period
-        struct_ts_event = self._struct_ts_event
+        struct_cycles = self._struct_cycles
         softcode_handler = self._softcode_handler
 
         # create buffers for repeated serial reads
@@ -172,8 +173,8 @@ class FSMThread(Thread):
             elif debug:
                 logger.debug(f'State machine #{index} confirmed by Bpod')
 
-        # read the start time of the state machine
-        t0 = struct.unpack('<Q', serial.read(8))[0]
+        # read the start time of the state machine (uInt64)
+        t0 = self._struct_start.unpack(serial.read(8))[0]
         if debug:
             logger.debug(f'{t0} µs: Starting state machine #{index}')
 
@@ -189,7 +190,7 @@ class FSMThread(Thread):
                 serial.readinto(event_data_view)
 
                 # unpack the number of cycles, calculate the event's timestamp
-                n_cycles = struct_ts_event.unpack_from(event_data_view, param)[0]
+                n_cycles = struct_cycles.unpack_from(event_data_view, param)[0]
                 micros = t0 + n_cycles * cycle_period
 
                 # handle each event
@@ -200,7 +201,8 @@ class FSMThread(Thread):
 
                 # handle exit event
                 if 255 in events:
-                    cycles, micros = self._struct_ts_exit.unpack(serial.read(12))
+                    # read 12 bytes: cycles (uInt32) and micros (uInt64)
+                    cycles, micros = self._struct_exit.unpack(serial.read(12))
                     if debug:
                         logger.debug(
                             f'{micros} µs: Ending state machine #{index} '
