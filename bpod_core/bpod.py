@@ -171,6 +171,7 @@ class FSMThread(Thread):
         state_transitions = self._state_transitions
         previous_state = np.uint8(0)
         current_state = np.uint8(0)
+        target_exit = state_transitions.shape[0]
         target_back = np.uint8(255)
         use_back_op = self._use_back_op
 
@@ -221,7 +222,9 @@ class FSMThread(Thread):
                         break
                     target = state_transitions[current_state][event]
                     if target != current_state:
-                        if target == target_back and use_back_op:
+                        if target == target_exit:
+                            break
+                        elif target == target_back and use_back_op:
                             target = previous_state  # noqa: PLW2901
                         previous_state = current_state
                         current_state = target
