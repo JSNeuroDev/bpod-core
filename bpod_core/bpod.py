@@ -134,31 +134,12 @@ class FSMThread(Thread):
         super().__init__()
         self.daemon = True
         self.serial = serial
-        self.alive = True
         self._index = fsm_index
         self._confirm_fsm = confirm_fsm
         self._cycle_period = cycle_period
         self._softcode_handler = softcode_handler
         self._state_transitions = state_transitions
         self._use_back_op = use_back_op
-
-    def terminate(self, timeout: float | None = 2) -> bool:
-        """
-        Terminate the FSMThread.
-
-        Parameters
-        ----------
-        timeout : float
-            Timeout in seconds.
-
-        Returns
-        -------
-        bool
-            Whether the FSMThread was successfully terminated.
-        """
-        self.alive = False
-        self.join(timeout)
-        return self.is_alive()
 
     def run(self):
         """Execute the FSMThread."""
@@ -171,7 +152,7 @@ class FSMThread(Thread):
         state_transitions = self._state_transitions
         previous_state = np.uint8(0)
         current_state = np.uint8(0)
-        target_exit = state_transitions.shape[0]
+        target_exit = np.uint8(state_transitions.shape[0])
         target_back = np.uint8(255)
         use_back_op = self._use_back_op
 
@@ -193,9 +174,11 @@ class FSMThread(Thread):
         t0 = self._struct_start.unpack(serial.read(8))[0]
         if debug:
             logger.debug(f'{t0} µs: Starting state machine #{index}')
+            logger.debug(f'{t0} µs: state {current_state}')
 
         # enter the reading loop
-        while self.alive:
+        alive = True
+        while alive:
             # read the next two opcodes
             serial.readinto(opcode_buf)
             opcode, param = opcode_buf
@@ -215,13 +198,13 @@ class FSMThread(Thread):
                     if debug:
                         logger.debug(f'{micros} µs: event {event}')
 
-                # handle exit event / state transition
+                # handle exit event and state transitions
                 for event in events:
-                    if event == 255:
-                        self.alive = False
+                    if event == 255:  # exit event
+                        alive = False
                         break
                     target = state_transitions[current_state][event]
-                    if target != current_state:
+                    if target != current_state:  # transition to other state
                         if target == target_exit:
                             break
                         elif target == target_back and use_back_op:
@@ -240,6 +223,7 @@ class FSMThread(Thread):
             else:
                 raise RuntimeError(f'Unknown opcode: {opcode}')
 
+        # exit state machine
         # read 12 bytes: cycles (uInt32) and micros (uInt64)
         cycles, micros = self._struct_exit.unpack(serial.read(12))
         if debug:
@@ -1113,7 +1097,7 @@ class Bpod:
     @property
     def is_running(self) -> bool:
         """Check if the Bpod is currently running a state machine."""
-        return getattr(self._fsm_thread, 'alive', False)
+        return self._fsm_thread is not None and self._fsm_thread.is_alive()
 
     def wait(self):
         """
