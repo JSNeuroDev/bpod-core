@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from threading import Thread
 from typing import NamedTuple
 
+import numpy as np
+from numpy.typing import NDArray
 from pydantic import validate_call
 from serial import SerialException
 from serial.tools.list_ports import comports
@@ -99,13 +101,15 @@ class FSMThread(Thread):
     _struct_cycles = struct.Struct('<I')
     _struct_exit = struct.Struct('<IQ')
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         serial: ExtendedSerial,
         fsm_index: int,
         confirm_fsm: bool,
         cycle_period: int,
         softcode_handler: Callable,
+        state_transitions: np.ndarray,
+        use_back_op: bool,
     ):
         """
         Initialize the FSMThread.
@@ -122,6 +126,10 @@ class FSMThread(Thread):
             The cycle period of the Bpod device in microseconds.
         softcode_handler : Callable
             A handler function for processing softcodes.
+        state_transitions : np.ndarray
+            The state transition matrix
+        use_back_op : bool
+            Whether the state machine makes use of the `>back` operator
         """
         super().__init__()
         self.daemon = True
@@ -131,6 +139,8 @@ class FSMThread(Thread):
         self._confirm_fsm = confirm_fsm
         self._cycle_period = cycle_period
         self._softcode_handler = softcode_handler
+        self._state_transitions = state_transitions
+        self._use_back_op = use_back_op
 
     def terminate(self, timeout: float | None = 2) -> bool:
         """
@@ -158,6 +168,11 @@ class FSMThread(Thread):
         cycle_period = self._cycle_period
         struct_cycles = self._struct_cycles
         softcode_handler = self._softcode_handler
+        state_transitions = self._state_transitions
+        previous_state = np.uint8(0)
+        current_state = np.uint8(0)
+        target_back = np.uint8(255)
+        use_back_op = self._use_back_op
 
         # create buffers for repeated serial reads
         opcode_buf = bytearray(2)  # buffer for opcodes
@@ -199,16 +214,20 @@ class FSMThread(Thread):
                     if debug:
                         logger.debug(f'{micros} µs: event {event}')
 
-                # handle exit event
-                if 255 in events:
-                    # read 12 bytes: cycles (uInt32) and micros (uInt64)
-                    cycles, micros = self._struct_exit.unpack(serial.read(12))
-                    if debug:
-                        logger.debug(
-                            f'{micros} µs: Ending state machine #{index} '
-                            f'({cycles} cycles)'
-                        )
-                    break
+                # handle exit event / state transition
+                for event in events:
+                    if event == 255:
+                        self.alive = False
+                        break
+                    target = state_transitions[current_state][event]
+                    if target != current_state:
+                        if target == target_back and use_back_op:
+                            target = previous_state  # noqa: PLW2901
+                        previous_state = current_state
+                        current_state = target
+                        if debug:
+                            logger.debug(f'{micros} µs: state {current_state}')
+                        break
 
             elif opcode == 2:  # handle softcodes
                 if debug:
@@ -218,7 +237,12 @@ class FSMThread(Thread):
             else:
                 raise RuntimeError(f'Unknown opcode: {opcode}')
 
-        self.alive = False
+        # read 12 bytes: cycles (uInt32) and micros (uInt64)
+        cycles, micros = self._struct_exit.unpack(serial.read(12))
+        if debug:
+            logger.debug(
+                f'{micros} µs: Ending state machine #{index} ({cycles} cycles)'
+            )
 
 
 class Bpod:
@@ -254,6 +278,8 @@ class Bpod:
         self.event_names = []
         self.output_actions = []
         self._waiting_for_confirmation = False
+        self._state_transitions: NDArray[np.uint8] = np.empty((0, 255), dtype=np.uint8)
+        self._use_back_op = False
 
         # identify Bpod by port or serial number
         port, self._serial_number = self._identify_bpod(port, serial_number)
@@ -790,14 +816,14 @@ class Bpod:
             for state in state_machine.states.values()
             for target in state.state_change_conditions.values()
         }
-        use_back_op = '>back' in targets_used
+        self._use_back_op = '>back' in targets_used
 
         # Validate the number of states, global timers, global counters and conditions.
         n_global_timers = max(state_machine.global_timers.keys(), default=-1) + 1
         n_global_counters = max(state_machine.global_counters.keys(), default=-1) + 1
         n_conditions = max(state_machine.conditions.keys(), default=-1) + 1
         for name, value, maximum_value in (
-            ('states', n_states, self._hardware.max_states - 1 - use_back_op),
+            ('states', n_states, self._hardware.max_states - 1 - self._use_back_op),
             ('global timers', n_global_timers, self._hardware.n_global_timers),
             ('global counters', n_global_counters, self._hardware.n_global_counters),
             ('conditions', n_conditions, self._hardware.n_conditions),
@@ -864,7 +890,7 @@ class Bpod:
             k: v for v, k in enumerate([*state_machine.states.keys(), 'exit'])
         }
         target_indices.update({'exit': n_states, '>exit': n_states})
-        target_indices.update({'>back': 255} if use_back_op else {})
+        target_indices.update({'>back': 255} if self._use_back_op else {})
         event_indices = {k: v for v, k in enumerate(self.event_names)}
         action_indices = {k: v for v, k in enumerate(self.output_actions)}
 
@@ -916,6 +942,16 @@ class Bpod:
                 *tmp_list,
             )
         )
+
+        # state transition matrix
+        n_states = len(state_machine.states)
+        self._state_transitions = np.arange(n_states, dtype=np.uint8)[
+            :, np.newaxis
+        ] * np.ones((1, 255), dtype=np.uint8)
+        for state_idx, state in enumerate(state_machine.states.values()):
+            for event, target in state.state_change_conditions.items():
+                target_idx = target_indices[target]
+                self._state_transitions[state_idx][event_indices[event]] = target_idx
 
         # Append remaining events
         append_events('GlobalTimer1_Start', 'GlobalTimer1_End')  # global timer start
@@ -1064,7 +1100,7 @@ class Bpod:
         logger.debug(f'Sending state machine #{self._next_fsm_index} to Bpod')
         n_bytes = len(byte_array)
         self.serial0.write_struct(
-            f'<c2?H{n_bytes}s', b'C', run_asap, use_back_op, n_bytes, byte_array
+            f'<c2?H{n_bytes}s', b'C', run_asap, self._use_back_op, n_bytes, byte_array
         )
         self._waiting_for_confirmation = True
 
@@ -1104,6 +1140,8 @@ class Bpod:
             self._waiting_for_confirmation,
             self._hardware.cycle_period,
             self._softcode_handler,
+            self._state_transitions,
+            self._use_back_op,
         )
         self._fsm_thread.start()
         self._waiting_for_confirmation = False
