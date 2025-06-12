@@ -174,7 +174,9 @@ class FSMThread(Thread):
         t0 = self._struct_start.unpack(serial.read(8))[0]
         if debug:
             logger.debug(f'{t0} µs: Starting state machine #{index}')
-            logger.debug(f'{t0} µs: state {current_state}')
+            logger.debug(f'{t0} µs: State {current_state}')
+        # todo: handle start of state machine
+        # todo: handle start of state
 
         # enter the reading loop
         alive = True
@@ -196,24 +198,29 @@ class FSMThread(Thread):
                 events = event_data_view[:param]
                 for event in events:
                     if debug:
-                        logger.debug(f'{micros} µs: event {event}')
+                        logger.debug(f'{micros} µs: Event {event}')
+                    # todo: handle event
 
-                # handle exit event and state transitions
+                # handle state transitions / exit event
                 for event in events:
                     if event == 255:  # exit event
                         alive = False
                         break
-                    target = state_transitions[current_state][event]
-                    if target != current_state:  # transition to other state
-                        if target == target_exit:
-                            break
-                        elif target == target_back and use_back_op:
-                            target = previous_state  # noqa: PLW2901
-                        previous_state = current_state
-                        current_state = target
-                        if debug:
-                            logger.debug(f'{micros} µs: state {current_state}')
+                    target_state = state_transitions[current_state][event]
+                    if target_state == current_state:  # no transition
+                        continue
+                    if target_state == target_exit:  # virtual exit state
+                        # todo: handle end of state
                         break
+                    if target_state == target_back and use_back_op:  # back
+                        target_state = previous_state  # noqa: PLW2901
+                    previous_state = current_state
+                    current_state = target_state
+                    # todo: handle end of state
+                    # todo: handle start of state
+                    if debug:
+                        logger.debug(f'{micros} µs: State {current_state}')
+                    break  # only handle the first state transition
 
             elif opcode == 2:  # handle softcodes
                 if debug:
@@ -230,6 +237,7 @@ class FSMThread(Thread):
             logger.debug(
                 f'{micros} µs: Ending state machine #{index} ({cycles} cycles)'
             )
+        # todo: handle end of state machine
 
 
 class Bpod:
