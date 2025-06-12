@@ -214,9 +214,9 @@ class FSMThread(Thread):
                         break
                     if target_state == target_back and use_back_op:  # back
                         target_state = previous_state  # noqa: PLW2901
+                    # todo: handle end of state
                     previous_state = current_state
                     current_state = target_state
-                    # todo: handle end of state
                     # todo: handle start of state
                     if debug:
                         logger.debug(f'{micros} µs: State {current_state}')
