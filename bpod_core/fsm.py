@@ -5,7 +5,7 @@ import re
 from collections import OrderedDict
 from typing import Annotated
 
-from graphviz import Digraph  # type: ignore
+from graphviz import Digraph  # type: ignore[import-untyped]
 from pydantic import BaseModel, Field, NonNegativeFloat, NonNegativeInt, validate_call
 
 StateName = Annotated[
@@ -255,7 +255,7 @@ class StateMachine(BaseModel):
                 'minLength': 1,
                 'type': 'string',
                 'not': {'const': 'exit'},
-            }
+            },
         },
     )
     """An ordered dictionary of states in the state machine."""
@@ -386,7 +386,7 @@ class StateMachine(BaseModel):
             onset_trigger=onset_trigger,
         )
 
-    def set_global_counter(  # noqa: PLR0913
+    def set_global_counter(
         self,
         counter_id: GlobalCounterID,
         event: GlobalCounterEvent,
@@ -409,7 +409,9 @@ class StateMachine(BaseModel):
         None
         """
         self.global_counters[counter_id] = GlobalCounter(
-            id=counter_id, event=event, threshold=threshold
+            id=counter_id,
+            event=event,
+            threshold=threshold,
         )
 
     def set_condition(
@@ -434,7 +436,9 @@ class StateMachine(BaseModel):
         None
         """
         self.conditions[condition_id] = Condition(
-            id=condition_id, channel=channel, value=value
+            id=condition_id,
+            channel=channel,
+            value=value,
         )
 
     @property

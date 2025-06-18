@@ -65,16 +65,16 @@ def mock_ext_serial():
     """Mock base class methods for ExtendedSerial."""
     extended_serial = ExtendedSerial()
     extended_serial.response_buffer = bytearray()
-    extended_serial.mock_responses = dict()
+    extended_serial.mock_responses = {}
     extended_serial.last_write = b''
 
-    def write(data):
+    def write(data) -> None:
         for pattern, value in extended_serial.mock_responses.items():
             if re.match(pattern, data):
                 extended_serial.response_buffer.extend(value)
                 extended_serial.last_write = data
                 return
-        raise AssertionError(f"No matching response for input '{data}'")
+        raise AssertionError('No matching response for input %s', data)
 
     def read(size: int = 1) -> bytes:
         response = bytes(extended_serial.response_buffer[:size])
@@ -107,16 +107,18 @@ def mock_bpod(mock_ext_serial):
     mock_bpod = MagicMock(spec=Bpod)
     mock_bpod.serial0 = mock_ext_serial
     mock_bpod._identify_bpod.side_effect = lambda *args, **kwargs: Bpod._identify_bpod(
-        mock_bpod, *args, **kwargs
+        mock_bpod,
+        *args,
+        **kwargs,
     )
     mock_bpod._sends_discovery_byte.side_effect = (
         lambda *args, **kwargs: Bpod._sends_discovery_byte(mock_bpod, *args, **kwargs)
     )
-    yield mock_bpod
+    return mock_bpod
 
 
 @pytest.fixture
-def mock_bpod_20(mock_comports, mock_ext_serial):
+def mock_bpod_20(mock_comports, mock_ext_serial):  # noqa: ARG001
     mock_ext_serial.mock_responses.update(fixture_bpod_20)
     with (
         patch('bpod_core.bpod.ExtendedSerial', return_value=mock_ext_serial),
@@ -126,7 +128,7 @@ def mock_bpod_20(mock_comports, mock_ext_serial):
 
 
 @pytest.fixture
-def mock_bpod_25(mock_comports, mock_ext_serial):
+def mock_bpod_25(mock_comports, mock_ext_serial):  # noqa: ARG001
     mock_ext_serial.mock_responses.update(fixture_bpod_25)
     with (
         patch('bpod_core.bpod.ExtendedSerial', return_value=mock_ext_serial),
@@ -136,7 +138,7 @@ def mock_bpod_25(mock_comports, mock_ext_serial):
 
 
 @pytest.fixture
-def mock_bpod_2p(mock_comports, mock_ext_serial):
+def mock_bpod_2p(mock_comports, mock_ext_serial):  # noqa: ARG001
     mock_ext_serial.mock_responses.update(fixture_bpod_2p)
     with (
         patch('bpod_core.bpod.ExtendedSerial', return_value=mock_ext_serial),
@@ -149,9 +151,10 @@ class TestBpodIdentifyBpod:
     @pytest.fixture
     def mock_bpod(self, mock_bpod):
         mock_bpod.serial0.response_buffer = bytearray([222])
-        yield mock_bpod
+        return mock_bpod
 
-    def test_automatic_success(self, mock_bpod, mock_comports):
+    @pytest.mark.usefixtures('mock_comports')
+    def test_automatic_success(self, mock_bpod):
         """Test successful identification of Bpod without specifying port or serial."""
         assert Bpod._identify_bpod(mock_bpod) == ('COM3', '12345')
         mock_bpod.serial0.__init__.assert_called_once_with('COM3', timeout=0.11)
@@ -171,28 +174,32 @@ class TestBpodIdentifyBpod:
             Bpod._identify_bpod(mock_bpod)
         mock_bpod.serial0.__init__.assert_not_called()
 
-    def test_automatic_no_discovery_byte(self, mock_bpod, mock_comports):
+    @pytest.mark.usefixtures('mock_comports')
+    def test_automatic_no_discovery_byte(self, mock_bpod):
         """Test failure to auto identify Bpod when no discovery byte is received."""
         mock_bpod.serial0.response_buffer = bytearray()
         with pytest.raises(BpodError, match='No .* Bpod found'):
             Bpod._identify_bpod(mock_bpod)
         mock_bpod.serial0.__init__.assert_called_once_with('COM3', timeout=0.11)
 
-    def test_automatic_serial_exception(self, mock_bpod, mock_comports):
+    @pytest.mark.usefixtures('mock_comports')
+    def test_automatic_serial_exception(self, mock_bpod):
         """Test failure to auto identify Bpod when serial read raises exception."""
         mock_bpod.serial0.read.side_effect = SerialException
         with pytest.raises(BpodError, match='No .* Bpod found'):
             Bpod._identify_bpod(mock_bpod)
         mock_bpod.serial0.__init__.assert_called_once_with('COM3', timeout=0.11)
 
-    def test_serial_success(self, mock_bpod, mock_comports):
+    @pytest.mark.usefixtures('mock_comports')
+    def test_serial_success(self, mock_bpod):
         """Test successful identification of Bpod when specifying serial."""
         port, serial_number = Bpod._identify_bpod(mock_bpod, serial_number='12345')
         assert port == 'COM3'
         assert serial_number == '12345'  # existing serial
         mock_bpod.serial0.__init__.assert_called_once_with('COM3', timeout=0.11)
 
-    def test_serial_incorrect_serial(self, mock_bpod, mock_comports):
+    @pytest.mark.usefixtures('mock_comports')
+    def test_serial_incorrect_serial(self, mock_bpod):
         """Test failure to identify Bpod when specifying incorrect serial."""
         with pytest.raises(BpodError, match='No .* serial number'):
             Bpod._identify_bpod(mock_bpod, serial_number='00000')
@@ -206,14 +213,16 @@ class TestBpodIdentifyBpod:
             Bpod._identify_bpod(mock_bpod, serial_number='12345')
         mock_bpod.serial0.__init__.assert_called_once_with('COM3', timeout=0.11)
 
-    def test_port_success(self, mock_bpod, mock_comports):
+    @pytest.mark.usefixtures('mock_comports')
+    def test_port_success(self, mock_bpod):
         """Test successful identification of Bpod when specifying port."""
         port, serial_number = Bpod._identify_bpod(mock_bpod, port='COM3')
         assert port == 'COM3'
         assert serial_number == '12345'  # existing serial
         mock_bpod.serial0.__init__.assert_not_called()
 
-    def test_port_incorrect_port(self, mock_bpod, mock_comports):
+    @pytest.mark.usefixtures('mock_comports')
+    def test_port_incorrect_port(self, mock_bpod):
         """Test failure to identify Bpod when specifying incorrect port."""
         with pytest.raises(BpodError, match='Port not found'):
             Bpod._identify_bpod(mock_bpod, port='incorrect_port')
@@ -370,7 +379,7 @@ class TestSendStateMachine:
         fsm = StateMachine()
         fsm.add_state('a', 1, {'Tup': 'b'}, {'PWM1': 255})
         fsm.add_state('b', 1, {'Tup': 'a'})
-        yield fsm
+        return fsm
 
     @pytest.fixture
     def fsm_global_timers(self):
@@ -378,7 +387,7 @@ class TestSendStateMachine:
         fsm.set_global_timer(2, 3, 1.5, 'PWM1', 128, 64, 1, 1, 3, 0)
         fsm.add_state('a', 1, {'GlobalTimer3_Start': 'b'}, {'GlobalTimerTrig': 4})
         fsm.add_state('b', 1, {'GlobalTimer3_End': '>exit'})
-        yield fsm
+        return fsm
 
     @pytest.fixture
     def fsm_global_counters(self):
@@ -387,7 +396,7 @@ class TestSendStateMachine:
         fsm.add_state('a', 2, {'Tup': 'b'}, {'PWM2': 255})
         fsm.add_state('b', 0, {'Tup': 'c'}, {'GlobalCounterReset': 3})
         fsm.add_state('c', 0, {'GlobalCounter3_End': '>exit'}, {'PWM1': 255})
-        yield fsm
+        return fsm
 
     @pytest.fixture
     def fsm_conditions(self):
@@ -395,7 +404,7 @@ class TestSendStateMachine:
         fsm.set_condition(1, 'Port2', 1)
         fsm.add_state('a', 1, {'Tup': 'b'}, {'PWM1': 255})
         fsm.add_state('b', 1, {'Tup': '>exit', 'Condition2': '>exit'}, {'PWM2': 255})
-        yield fsm
+        return fsm
 
     def test_send_state_machine_basic_25(self, fsm_basic, mock_bpod_25):
         bpod = mock_bpod_25('COM3')
@@ -435,7 +444,9 @@ class TestSendStateMachine:
         )
 
     def test_send_state_machine_global_counters_25(
-        self, fsm_global_counters, mock_bpod_25
+        self,
+        fsm_global_counters,
+        mock_bpod_25,
     ):
         bpod = mock_bpod_25('COM3')
         bpod.send_state_machine(fsm_global_counters)
@@ -446,7 +457,9 @@ class TestSendStateMachine:
         )
 
     def test_send_state_machine_global_counters_2p(
-        self, fsm_global_counters, mock_bpod_2p
+        self,
+        fsm_global_counters,
+        mock_bpod_2p,
     ):
         bpod = mock_bpod_2p('COM3')
         bpod.send_state_machine(fsm_global_counters)

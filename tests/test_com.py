@@ -89,7 +89,7 @@ class TestChunkedSerialReader:
             [
                 call(b'\x01\x00\x00\x00'),
                 call(b'\x02\x00\x00\x00'),
-            ]
+            ],
         )
 
     def test_multiple_data_received(self):
@@ -107,7 +107,7 @@ class TestChunkedSerialReader:
             [
                 call(b'\x01\x00\x00\x00'),
                 call(b'\x02\x00\x00\x00'),
-            ]
+            ],
         )
 
 
@@ -124,7 +124,7 @@ class TestToBytes:
 
     def test_to_bytes_with_int(self):
         assert com.to_bytes(255) == b'\xff'
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match='bytes must be in range'):
             com.to_bytes(256)
 
     def test_to_bytes_with_numpy_array(self):
@@ -140,7 +140,7 @@ class TestToBytes:
 
     def test_to_bytes_with_list(self):
         assert com.to_bytes([1, 2, 3]) == b'\x01\x02\x03'
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match='bytes must be in range'):
             com.to_bytes([1, 2, 256])
 
     def test_to_bytes_with_float(self):

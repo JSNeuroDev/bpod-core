@@ -19,7 +19,7 @@ def test_changelog():
     """Test that the current version is mentioned in the changelog."""
     changelog_path = Path(__file__).parents[1].joinpath('CHANGELOG.md')
     assert changelog_path.exists(), 'changelog file does not exist'
-    with open(changelog_path) as file:
+    with changelog_path.open() as file:
         content = file.read()
     assert f'## [{bpod_core_version}]' in content, (
         f'version {bpod_core_version} is not contained in the CHANGELOG.md file'

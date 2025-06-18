@@ -2,21 +2,38 @@
 
 import logging
 import struct
-from collections.abc import Iterable, Sequence
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, TypeAlias
 
 import numpy as np
 from serial import Serial
 from serial.serialutil import to_bytes as serial_to_bytes  # type: ignore[attr-defined]
 from serial.threaded import Protocol
+from typing_extensions import Buffer, Self
 
 logger = logging.getLogger(__name__)
+
+ByteLike: TypeAlias = (
+    Buffer | int | np.ndarray | np.generic | str | Iterable['ByteLike']
+)
+"""
+A recursive type alias representing any data that can be converted to bytes for serial
+communication.
+
+Includes:
+
+- Buffer: Any buffer-compatible object (e.g., bytes, bytearray, memoryview)
+- int: Single integer values (interpreted as a single byte)
+- np.ndarray, np.generic: NumPy arrays and scalars (converted via .tobytes())
+- str: Strings (encoded as UTF-8)
+- Iterable['ByteLike']: Nested iterables of ByteLike types (recursively flattened)
+"""
 
 
 class ExtendedSerial(Serial):
     """Enhances :class:`serial.Serial` with additional functionality."""
 
-    def write(self, data: Any) -> int | None:
+    def write(self, data: ByteLike) -> int | None:  # type: ignore[override]
         """
         Write data to the serial port.
 
@@ -35,7 +52,7 @@ class ExtendedSerial(Serial):
         """
         return super().write(to_bytes(data))
 
-    def write_struct(self, format_string: str, *data: Any) -> int | None:
+    def write_struct(self, format_string: str, *data: Any) -> int | None:  # noqa:ANN401
         """
         Write structured data to the serial port.
 
@@ -85,7 +102,7 @@ class ExtendedSerial(Serial):
         n_bytes = struct.calcsize(format_string)
         return struct.unpack(format_string, super().read(n_bytes))
 
-    def query(self, query, size: int = 1) -> bytes:
+    def query(self, query: ByteLike, size: int = 1) -> bytes:
         r"""
         Query data from the serial port.
 
@@ -107,7 +124,9 @@ class ExtendedSerial(Serial):
         return self.read(size)
 
     def query_struct(
-        self, query: bytes | Sequence[Any], format_string: str
+        self,
+        query: ByteLike,
+        format_string: str,
     ) -> tuple[Any, ...]:
         """
         Query structured data from the serial port.
@@ -134,7 +153,7 @@ class ExtendedSerial(Serial):
         self.write(query)
         return self.read_struct(format_string)
 
-    def verify(self, query, expected_response: bytes = b'\x01') -> bool:
+    def verify(self, query: ByteLike, expected_response: bytes = b'\x01') -> bool:
         r"""
         Verify the response of the serial port.
 
@@ -171,7 +190,7 @@ class ChunkedSerialReader(Protocol):
         else:
             self._buf = buffer
 
-    def __call__(self):
+    def __call__(self) -> Self:
         """Allow the instance to be used as a protocol factory for ReaderThread."""
         return self
 
@@ -238,7 +257,7 @@ class ChunkedSerialReader(Protocol):
         """
 
 
-def to_bytes(data: Any) -> bytes:  # noqa: PLR0911
+def to_bytes(data: ByteLike) -> bytes:  # noqa: PLR0911
     """
     Convert data to bytestring.
 
@@ -260,12 +279,10 @@ def to_bytes(data: Any) -> bytes:  # noqa: PLR0911
             return data
         case bytearray():
             return bytes(data)
-        case memoryview():
+        case memoryview() | np.ndarray() | np.generic():
             return data.tobytes()
         case int():
             return bytes([data])
-        case np.ndarray() | np.generic():
-            return data.tobytes()
         case str():
             return data.encode('utf-8')
         case _ if isinstance(data, Iterable):
