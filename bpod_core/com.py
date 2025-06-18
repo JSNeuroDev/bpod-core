@@ -236,7 +236,6 @@ class ChunkedSerialReader(Protocol):
         ----------
         data_chunk : bytearray
         """
-        pass
 
 
 def to_bytes(data: Any) -> bytes:  # noqa: PLR0911

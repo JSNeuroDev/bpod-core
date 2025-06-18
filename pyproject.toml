@@ -82,16 +82,23 @@ ignore = [
   "PLR2004", # Magic value used in comparison, consider replacing with a constant variable
 ]
 select = [
-  "B",   # flake8-bugbear
-  "D",   # pydocstyle
-  "E",   # pycodestyle Error
-  "F",   # Pyflakes
-  "I",   # isort
-  "N",   # pep8-naming
-  "PL",  # pylint
-  "SIM", # flake8-simplify
-  "UP",  # pyupgrade
-  "W",   # pycodestyle Warning
+    "A",    # flake8-builtins
+    "B",    # flake8-bugbear
+    "ICN",  # flake8-import-conventions
+    "LOG",  # flake8-logging
+    "PIE",  # flake8-pie
+    "SIM",  # flake8-simplify
+    "TID",  # flake8-tidy-imports
+    "TC",   # flake8-type-checking
+    "E",    # pycodestyle Error
+    "W",    # pycodestyle Warning
+    "F",    # Pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "PL",   # pylint
+    "UP",   # pyupgrade
+    "D",    # pydocstyle
+    "FURB", # refurb
 ]
 
 [tool.ruff.lint.pydocstyle]

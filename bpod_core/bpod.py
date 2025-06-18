@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from threading import Thread
+from types import TracebackType
 from typing import NamedTuple
 
 import numpy as np
@@ -108,7 +109,7 @@ class FSMThread(Thread):
         confirm_fsm: bool,
         cycle_period: int,
         softcode_handler: Callable,
-        state_transitions: np.ndarray,
+        state_transitions: NDArray[np.uint8],
         use_back_op: bool,
     ):
         """
@@ -311,7 +312,12 @@ class Bpod:
         """Enter context."""
         return self
 
-    def __exit__(self, type, value, traceback):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ):
         """Exit context and close connection."""
         self.close()
 
