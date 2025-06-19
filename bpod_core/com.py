@@ -42,7 +42,7 @@ class ExtendedSerial(Serial):
 
         Parameters
         ----------
-        data : any
+        data : ByteLike
             Data to be written to the serial port.
 
         Returns
@@ -110,7 +110,7 @@ class ExtendedSerial(Serial):
 
         Parameters
         ----------
-        query : any
+        query : ByteLike
             Query to be sent to the serial port.
         size : int, default: 1
             The number of bytes to receive from the serial port.
@@ -136,7 +136,7 @@ class ExtendedSerial(Serial):
 
         Parameters
         ----------
-        query : any
+        query : ByteLike
             Query to be sent to the serial port.
         format_string : str
             A format string that specifies the layout of the data to be read. It should
@@ -162,7 +162,7 @@ class ExtendedSerial(Serial):
 
         Parameters
         ----------
-        query : any
+        query : ByteLike
             The query to be sent to the serial port.
         expected_response : bytes, optional
             The expected response from the serial port. Default: b'\x01'.
@@ -266,7 +266,7 @@ def to_bytes(data: ByteLike) -> bytes:  # noqa: PLR0911
 
     Parameters
     ----------
-    data : any
+    data : ByteLike
         Data to be converted to bytestring.
 
     Returns
