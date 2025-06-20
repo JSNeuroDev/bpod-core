@@ -74,7 +74,7 @@ def mock_ext_serial():
                 extended_serial.response_buffer.extend(value)
                 extended_serial.last_write = data
                 return
-        raise AssertionError('No matching response for input %s', data)
+        raise AssertionError(f'No matching response for input {data}')
 
     def read(size: int = 1) -> bytes:
         response = bytes(extended_serial.response_buffer[:size])
