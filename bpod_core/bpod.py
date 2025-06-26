@@ -692,7 +692,6 @@ class Bpod:
 
     def close(self) -> None:
         """Close the connection to the Bpod."""
-        self.stop_state_machine()
         if hasattr(self, 'serial0') and self.serial0.is_open:
             logger.debug('Closing connection to Bpod on %s', self.port)
             self.serial0.write(b'Z')
