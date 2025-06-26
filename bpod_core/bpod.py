@@ -3,9 +3,11 @@
 import logging
 import re
 import struct
+import weakref
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from threading import Event as TreadingEvent
 from threading import Thread
 from types import TracebackType
 from typing import NamedTuple
@@ -136,12 +138,16 @@ class FSMThread(Thread):
         super().__init__()
         self.daemon = True
         self.serial = serial
+        self._stop_event = TreadingEvent()
         self._index = fsm_index
         self._confirm_fsm = confirm_fsm
         self._cycle_period = cycle_period
         self._softcode_handler = softcode_handler
         self._state_transitions = state_transitions
         self._use_back_op = use_back_op
+
+    def stop(self):
+        self._stop_event.set()
 
     def run(self) -> None:
         """Execute the FSMThread."""
@@ -181,8 +187,7 @@ class FSMThread(Thread):
         # TODO: handle start of state
 
         # enter the reading loop
-        alive = True
-        while alive:
+        while not self._stop_event.is_set():
             # read the next two opcodes
             serial.readinto(opcode_buf)
             opcode, param = opcode_buf
@@ -206,7 +211,7 @@ class FSMThread(Thread):
                 # handle state transitions / exit event
                 for event in events:
                     if event == 255:  # exit event
-                        alive = False
+                        self.stop()
                         break
                     target_state = state_transitions[current_state][event]
                     if target_state == current_state:  # no transition
@@ -230,7 +235,7 @@ class FSMThread(Thread):
                 softcode_handler(param)
 
             else:
-                raise RuntimeError('Unknown opcode: %d', opcode)
+                raise RuntimeError(f'Unknown opcode: {opcode}')
 
         # exit state machine
         # read 12 bytes: cycles (uInt32) and micros (uInt64)
@@ -271,6 +276,7 @@ class Bpod:
     def __init__(
         self, port: str | None = None, serial_number: str | None = None
     ) -> None:
+        weakref.finalize(self, self.close)
         logger.info('bpod_core %s', bpod_core_version)
 
         # initialize members
@@ -327,9 +333,6 @@ class Bpod:
         exc_tb: TracebackType | None,
     ) -> None:
         """Exit context and close connection."""
-        self.close()
-
-    def __del__(self) -> None:
         self.close()
 
     def _sends_discovery_byte(
@@ -689,7 +692,9 @@ class Bpod:
 
     def close(self) -> None:
         """Close the connection to the Bpod."""
+        self.stop_state_machine()
         if hasattr(self, 'serial0') and self.serial0.is_open:
+            logger.debug('Closing connection to Bpod on %s', self.port)
             self.serial0.write(b'Z')
             self.serial0.close()
 
@@ -1135,7 +1140,7 @@ class Bpod:
         This method blocks until the state machine has finished executing.
         If no state machine is currently running, it raises a RuntimeError.
         """
-        if isinstance(self._fsm_thread, Thread):
+        if self.is_running:
             self._fsm_thread.join()
 
     def run_state_machine(self, *, blocking: bool = True) -> None:
@@ -1169,7 +1174,8 @@ class Bpod:
     def stop_state_machine(self) -> None:
         """Stop the currently running state machine."""
         if not self.is_running:
-            raise RuntimeError('No state machine is currently running')
+            return
+        logger.debug('Stopping state machine')
         self.serial0.write(b'X')
         if self._fsm_thread is not None:
             self._fsm_thread.join()
